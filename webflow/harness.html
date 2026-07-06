@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- webflow/harness.html — local proof page for the opticalMargin Webflow embed bundle.
+     Open this file directly in a browser after `npm run build:webflow`. -->
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>opticalMargin — Webflow embed harness</title>
+	<!-- A serif with real side-bearings shows the hang clearly. Any web font works;
+	     the effect measures the loaded font's glyph metrics via Canvas. -->
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet" />
+	<style>
+		body {
+			margin: 0;
+			padding: 4rem 0;
+			background: #14110f;
+			color: #efe9e2;
+			font-family: system-ui, sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 2.5rem;
+		}
+		/* A guide rule down the left and right edges of the text column makes the
+		   optical hang visible: hung punctuation pokes PAST these lines. */
+		.column {
+			position: relative;
+			width: min(90vw, 34rem);
+			padding: 1.5rem 0;
+			border-left: 1px solid #b5482e;
+			border-right: 1px solid #b5482e;
+		}
+		.prose {
+			font-family: 'Merriweather', Georgia, serif;
+			font-weight: 300;
+			font-size: 1.5rem;
+			line-height: 1.5;
+			text-align: justify;
+			margin: 0;
+		}
+		h1 { font: 300 0.85rem/1 system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6; }
+		.note { max-width: 34rem; font-size: 0.85rem; line-height: 1.6; opacity: 0.75; }
+		code { background: #2a2320; padding: 0.1em 0.35em; border-radius: 3px; }
+	</style>
+</head>
+<body>
+	<h1>opticalMargin · Webflow embed harness</h1>
+
+	<div class="column">
+		<!-- One element opted in via data-opticalmargin. Options are passed as data-* attributes.
+		     Punctuation-heavy copy with quotes, dashes, commas and periods at line ends/starts. -->
+		<p
+			class="prose"
+			data-opticalmargin
+			data-om-hang-start="true"
+			data-om-hang-end="true"
+			data-om-threshold="0.5"
+			data-om-max-hang-ratio="0.9"
+		>&ldquo;Typography,&rdquo; she said, &ldquo;is the craft of endowing human language with a
+		durable visual form.&rdquo; Well-set justified text should breathe — commas, periods,
+		hyphens and quotation marks nudge past the margin so the vertical edge reads as
+		optically straight, not mathematically flush. Resize the window; the hangs recompute.</p>
+	</div>
+
+	<p class="note">
+		<strong>What &ldquo;working&rdquo; looks like:</strong> the red rules mark the strict text-block
+		edges. With the embed active, punctuation at line starts/ends (quotes, commas, periods,
+		hyphens) should extend slightly <em>beyond</em> the red rules — the lines look optically
+		aligned rather than ragged with punctuation. Dragging the window narrower/wider re-flows
+		the text and the hanging punctuation recomputes on each resize. In the console you can call
+		<code>OpticalMargin.destroy(document.querySelector('[data-opticalmargin]'))</code> to restore
+		the plain markup, or <code>OpticalMargin.refit()</code> to re-apply.
+	</p>
+
+	<!-- The built IIFE bundle. Auto-inits on DOMContentLoaded + document.fonts.ready. -->
+	<script src="../dist/opticalmargin.webflow.min.js"></script>
+</body>
+</html>
