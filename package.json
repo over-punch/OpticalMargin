@@ -1,6 +1,6 @@
 {
 	"name": "@liiift-studio/opticalmargin",
-	"version": "1.0.17",
+	"version": "1.0.18",
 	"description": "Font-metric hanging punctuation — cross-browser optical margin alignment using actual glyph bounds, not a lookup table",
 	"type": "module",
 	"main": "dist/index.cjs",
