@@ -5,6 +5,7 @@ import ToolDirectory from "@/components/ToolDirectory"
 import { version } from "../../../package.json"
 import { version as siteVersion } from "../../package.json"
 import SiteFooter from "../components/SiteFooter"
+import PortsSection from "../components/PortsSection"
 import { MagnetChar } from "@liiift-studio/magnettype"
 
 export default function Home() {
@@ -142,6 +143,14 @@ removeOpticalMargin(el, original)`} />
 					</div>
 				</div>
 			</section>
+
+			<PortsSection
+				npm="@liiift-studio/opticalmargin"
+				bundle="opticalmargin"
+				attr="data-opticalmargin"
+				framerComponent="OpticalMargin"
+				repo="Liiift-Studio/OpticalMargin"
+			/>
 
 			<SiteFooter current="opticalMargin" npmVersion={version} siteVersion={siteVersion} />
 
