@@ -147,7 +147,7 @@ removeOpticalMargin(el, original)`} />
 			<PortsSection
 				npm="@liiift-studio/opticalmargin"
 				bundle="opticalmargin"
-				attr="data-opticalmargin"
+				attr="data-opticalmargin" figma="partial"
 				framerComponent="OpticalMargin"
 				repo="Liiift-Studio/OpticalMargin"
 			/>
