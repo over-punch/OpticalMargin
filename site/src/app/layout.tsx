@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import "./globals.css"
 import { Inter } from "next/font/google"
+import SiteHeader from "../components/SiteHeader"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
@@ -48,7 +49,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
 				/>
 			</head>
-			<body className="min-h-full flex flex-col">{children}</body>
+			<body className="min-h-full flex flex-col">
+				<SiteHeader current="opticalMargin" githubUrl="https://github.com/Liiift-Studio/OpticalMargin" />{children}</body>
 		</html>
 	)
 }
