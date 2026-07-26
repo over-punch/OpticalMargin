@@ -112,28 +112,28 @@ removeOpticalMargin(el, original)`} />
 									<th className="pb-2 font-normal">Description</th>
 								</tr>
 							</thead>
-							<tbody className="text-muted">
-								<tr className="border-t border-foreground/10 hover:bg-foreground/5 transition-colors">
+							<tbody className="text-muted zebra-bleed">
+								<tr className="hover:bg-foreground/5 transition-colors">
 									<td className="py-2 pr-6 font-mono">hangStart</td>
 									<td className="py-2 pr-6">true</td>
 									<td className="py-2">Hang opening punctuation at line starts.</td>
 								</tr>
-								<tr className="border-t border-foreground/10 hover:bg-foreground/5 transition-colors">
+								<tr className="hover:bg-foreground/5 transition-colors">
 									<td className="py-2 pr-6 font-mono">hangEnd</td>
 									<td className="py-2 pr-6">true</td>
 									<td className="py-2">Hang closing punctuation and sentence-end marks at line ends.</td>
 								</tr>
-								<tr className="border-t border-foreground/10 hover:bg-foreground/5 transition-colors">
+								<tr className="hover:bg-foreground/5 transition-colors">
 									<td className="py-2 pr-6 font-mono">threshold</td>
 									<td className="py-2 pr-6">0.5</td>
 									<td className="py-2">Minimum computed hang value in px. Characters whose hang falls below this are left flush.</td>
 								</tr>
-								<tr className="border-t border-foreground/10 hover:bg-foreground/5 transition-colors">
+								<tr className="hover:bg-foreground/5 transition-colors">
 									<td className="py-2 pr-6 font-mono">maxHangRatio</td>
 									<td className="py-2 pr-6">0.9</td>
 									<td className="py-2">Max proportion of advance width to hang (0–1).</td>
 								</tr>
-								<tr className="border-t border-foreground/10 hover:bg-foreground/5 transition-colors">
+								<tr className="hover:bg-foreground/5 transition-colors">
 									<td className="py-2 pr-6 font-mono">hangFractions</td>
 									<td className="py-2 pr-6">see desc.</td>
 									<td className="py-2">Per-character hang fraction overrides (0–1). Built-in defaults: hyphens &amp; dashes 1.0; quotes, periods, !, ?, &hellip;, ), ] 0.8; (, [, commas, semicolons, colons 0.6. Pass your own map to override any character.</td>
