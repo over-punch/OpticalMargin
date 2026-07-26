@@ -74,7 +74,7 @@
 	"homepage": "https://opticalmargin.com",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Liiift-Studio/OpticalMargin.git"
+		"url": "git+https://github.com/Liiift-Studio/OpticalMargin.git"
 	},
 	"bugs": {
 		"url": "https://github.com/Liiift-Studio/OpticalMargin/issues"
