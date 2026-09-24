@@ -1,6 +1,6 @@
 # Optical Margin
 
-[![npm](https://img.shields.io/npm/v/%40liiift-studio%2Fopticalmargin.svg)](https://www.npmjs.com/package/@liiift-studio/opticalmargin) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![part of liiift type-tools](https://img.shields.io/badge/liiift-type--tools-blueviolet)](https://github.com/Liiift-Studio/type-tools)
+[![npm](https://img.shields.io/npm/v/%40liiift-studio%2Fopticalmargin.svg)](https://www.npmjs.com/package/@overpunch/opticalmargin) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![part of liiift type-tools](https://img.shields.io/badge/liiift-type--tools-blueviolet)](https://github.com/Liiift-Studio/type-tools)
 
 **Hanging punctuation** nudges marks smaller than a letter — opening quotes, commas, dashes, periods — slightly past the edge of a text block, so the *letters*, not the punctuation, hold a clean optical margin. It's what fine book typesetting does to make a column edge look straight.
 
@@ -8,7 +8,7 @@ CSS `hanging-punctuation` is Safari-only, uses hard-coded character tables, and 
 
 ![Two paragraphs of the same quotation. In the top panel the opening quote sits flush, indenting the first letter inside the margin guide. In the bottom panel the opening quote hangs left past the guide so the letter T aligns to the margin, and line-end dashes extend to a clean right edge.](https://raw.githubusercontent.com/Liiift-Studio/OpticalMargin/main/assets/hero-before-after.png?v=1)
 
-**[opticalmargin.com](https://opticalmargin.com)** · [npm](https://www.npmjs.com/package/@liiift-studio/opticalmargin) · [GitHub](https://github.com/Liiift-Studio/OpticalMargin)
+**[opticalmargin.com](https://opticalmargin.com)** · [npm](https://www.npmjs.com/package/@overpunch/opticalmargin) · [GitHub](https://github.com/Liiift-Studio/OpticalMargin)
 
 TypeScript · Zero dependencies · Canvas measurement · Cross-browser · React + Vanilla JS
 
@@ -17,7 +17,7 @@ TypeScript · Zero dependencies · Canvas measurement · Cross-browser · React 
 ## Install
 
 ```bash
-npm install @liiift-studio/opticalmargin
+npm install @overpunch/opticalmargin
 ```
 
 ---
@@ -29,7 +29,7 @@ npm install @liiift-studio/opticalmargin
 ### React component
 
 ```tsx
-import { OpticalMarginText } from '@liiift-studio/opticalmargin'
+import { OpticalMarginText } from '@overpunch/opticalmargin'
 
 <OpticalMarginText>
   "Typography is the craft of endowing human language with a durable visual form."
@@ -41,7 +41,7 @@ Both `hangStart` and `hangEnd` default to `true`, so no props are required for s
 ### React hook
 
 ```tsx
-import { useOpticalMargin } from '@liiift-studio/opticalmargin'
+import { useOpticalMargin } from '@overpunch/opticalmargin'
 
 // The options object is required; pass {} for defaults.
 function Quote({ children }: { children: React.ReactNode }) {
@@ -64,7 +64,7 @@ Inline markup is preserved — italics, bold, and links survive the per-line wra
 ### Vanilla JS
 
 ```ts
-import { applyOpticalMargin, removeOpticalMargin, getCleanHTML } from '@liiift-studio/opticalmargin'
+import { applyOpticalMargin, removeOpticalMargin, getCleanHTML } from '@overpunch/opticalmargin'
 
 const el = document.querySelector('blockquote')
 const original = getCleanHTML(el)
@@ -88,7 +88,7 @@ ro.observe(el)
 ### TypeScript
 
 ```ts
-import type { OpticalMarginOptions } from '@liiift-studio/opticalmargin'
+import type { OpticalMarginOptions } from '@overpunch/opticalmargin'
 
 const opts: OpticalMarginOptions = { threshold: 1, maxHangRatio: 0.8 }
 ```
