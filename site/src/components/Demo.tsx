@@ -3,7 +3,7 @@
 // Interactive demo for optical-margin — toggles hang at start/end, threshold, maxHangRatio, cursor/gyro, and compare
 import { useState, useEffect, useDeferredValue, useCallback } from "react"
 import { useMediaQuery, useClientValue } from "@/lib/clientValue"
-import { OpticalMarginText } from "@liiift-studio/opticalmargin"
+import { OpticalMarginText } from "@overpunch/opticalmargin"
 
 const SAMPLE = `"The best typography," wrote Jan Tschichold, "is invisible — it disappears into the reading." That is the paradox of the craft: the more perfectly it is executed, the less it is noticed. Every margin matters. Every spacing decision carries weight. "A quotation mark at the start of a line should hang," Bringhurst insists, "so that the letter, not the punctuation, holds the optical edge." The same applies to commas, dashes, periods — any mark smaller than a full letter. Hung correctly, the margin reads as a clean vertical. Left flush, it creates a slight indent that the eye registers as misalignment, even when the reader cannot name what bothers them. "It is a small thing," one might say — but in typography, every small thing is the thing.`
 

@@ -14,7 +14,7 @@ export default function Home() {
 			<Hero
 				eyebrow="optical margin alignment"
 				title={[{ text: "Hang it right." }, { text: "Every font.", italic: true, subtle: true }]}
-				install="@liiift-studio/opticalmargin"
+				install="@overpunch/opticalmargin"
 				github="https://github.com/Liiift-Studio/OpticalMargin"
 				tech={["TypeScript", "Canvas measurement", "Cross-browser"]}
 			>
@@ -55,7 +55,7 @@ export default function Home() {
 				<div className="flex flex-col gap-8 text-sm">
 					<div className="flex flex-col gap-3">
 						<p className="text-muted">Drop-in component</p>
-						<CodeBlock code={`import { OpticalMarginText } from '@liiift-studio/opticalmargin'
+						<CodeBlock code={`import { OpticalMarginText } from '@overpunch/opticalmargin'
 
 <OpticalMarginText hangStart={true} hangEnd={true}>
   "Your paragraph text here..."
@@ -63,14 +63,14 @@ export default function Home() {
 					</div>
 					<div className="flex flex-col gap-3">
 						<p className="text-muted">Hook</p>
-						<CodeBlock code={`import { useOpticalMargin } from '@liiift-studio/opticalmargin'
+						<CodeBlock code={`import { useOpticalMargin } from '@overpunch/opticalmargin'
 
 const ref = useOpticalMargin({ hangStart: true, hangEnd: true })
 <p ref={ref}>{children}</p>`} />
 					</div>
 					<div className="flex flex-col gap-3">
 						<p className="text-muted">Vanilla JS</p>
-						<CodeBlock code={`import { applyOpticalMargin, removeOpticalMargin, getCleanHTML } from '@liiift-studio/opticalmargin'
+						<CodeBlock code={`import { applyOpticalMargin, removeOpticalMargin, getCleanHTML } from '@overpunch/opticalmargin'
 
 const el = document.querySelector('p')
 const original = getCleanHTML(el)
@@ -123,7 +123,7 @@ removeOpticalMargin(el, original)`} />
 			</section>
 
 			<PortsSection
-				npm="@liiift-studio/opticalmargin"
+				npm="@overpunch/opticalmargin"
 				bundle="opticalmargin"
 				attr="data-opticalmargin" figma="partial"
 				framerComponent="OpticalMargin"
