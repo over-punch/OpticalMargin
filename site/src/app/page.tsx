@@ -15,7 +15,7 @@ export default function Home() {
 				eyebrow="optical margin alignment"
 				title={[{ text: "Hang it right." }, { text: "Every font.", italic: true, subtle: true }]}
 				install="@overpunch/opticalmargin"
-				github="https://github.com/Liiift-Studio/OpticalMargin"
+				github="https://github.com/over-punch/OpticalMargin"
 				tech={["TypeScript", "Canvas measurement", "Cross-browser"]}
 			>
 				<p className="text-base leading-relaxed max-w-lg">
@@ -127,7 +127,7 @@ removeOpticalMargin(el, original)`} />
 				bundle="opticalmargin"
 				attr="data-opticalmargin" figma="partial"
 				framerComponent="OpticalMargin"
-				repo="Liiift-Studio/OpticalMargin"
+				repo="over-punch/OpticalMargin"
 			/>
 
 			<SiteFooter current="opticalMargin" npmVersion={version} siteVersion={siteVersion} />

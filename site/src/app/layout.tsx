@@ -50,7 +50,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 				/>
 			</head>
 			<body className="min-h-full flex flex-col">
-				<SiteHeader current="opticalMargin" githubUrl="https://github.com/Liiift-Studio/OpticalMargin" />{children}</body>
+				<SiteHeader current="opticalMargin" githubUrl="https://github.com/over-punch/OpticalMargin" />{children}</body>
 		</html>
 	)
 }

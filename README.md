@@ -1,14 +1,14 @@
 # Optical Margin
 
-[![npm](https://img.shields.io/npm/v/%40liiift-studio%2Fopticalmargin.svg)](https://www.npmjs.com/package/@overpunch/opticalmargin) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![part of liiift type-tools](https://img.shields.io/badge/liiift-type--tools-blueviolet)](https://github.com/Liiift-Studio/type-tools)
+[![npm](https://img.shields.io/npm/v/%40overpunch%2Fopticalmargin.svg)](https://www.npmjs.com/package/@overpunch/opticalmargin) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![part of liiift type-tools](https://img.shields.io/badge/liiift-type--tools-blueviolet)](https://github.com/over-punch/type-tools)
 
 **Hanging punctuation** nudges marks smaller than a letter — opening quotes, commas, dashes, periods — slightly past the edge of a text block, so the *letters*, not the punctuation, hold a clean optical margin. It's what fine book typesetting does to make a column edge look straight.
 
 CSS `hanging-punctuation` is Safari-only, uses hard-coded character tables, and gives no control over hang amount, threshold, or which characters hang. Optical Margin measures each punctuation character's actual hang amount from Canvas font metrics — not a lookup table — and applies it as a negative margin. Works in every browser, with every font.
 
-![Two paragraphs of the same quotation. In the top panel the opening quote sits flush, indenting the first letter inside the margin guide. In the bottom panel the opening quote hangs left past the guide so the letter T aligns to the margin, and line-end dashes extend to a clean right edge.](https://raw.githubusercontent.com/Liiift-Studio/OpticalMargin/main/assets/hero-before-after.png?v=1)
+![Two paragraphs of the same quotation. In the top panel the opening quote sits flush, indenting the first letter inside the margin guide. In the bottom panel the opening quote hangs left past the guide so the letter T aligns to the margin, and line-end dashes extend to a clean right edge.](https://raw.githubusercontent.com/over-punch/OpticalMargin/main/assets/hero-before-after.png?v=1)
 
-**[opticalmargin.com](https://opticalmargin.com)** · [npm](https://www.npmjs.com/package/@overpunch/opticalmargin) · [GitHub](https://github.com/Liiift-Studio/OpticalMargin)
+**[opticalmargin.com](https://opticalmargin.com)** · [npm](https://www.npmjs.com/package/@overpunch/opticalmargin) · [GitHub](https://github.com/over-punch/OpticalMargin)
 
 TypeScript · Zero dependencies · Canvas measurement · Cross-browser · React + Vanilla JS
 
@@ -186,4 +186,4 @@ The package itself has zero runtime dependencies. Do not remove this entry.
 
 ---
 
-See [CHANGELOG](https://github.com/Liiift-Studio/OpticalMargin/releases) for version history.
+See [CHANGELOG](https://github.com/over-punch/OpticalMargin/releases) for version history.

@@ -74,10 +74,10 @@
 	"homepage": "https://opticalmargin.com",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/Liiift-Studio/OpticalMargin.git"
+		"url": "git+https://github.com/over-punch/OpticalMargin.git"
 	},
 	"bugs": {
-		"url": "https://github.com/Liiift-Studio/OpticalMargin/issues"
+		"url": "https://github.com/over-punch/OpticalMargin/issues"
 	},
 	"sideEffects": false,
 	"publishConfig": {
