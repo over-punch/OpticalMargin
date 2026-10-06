@@ -4,7 +4,7 @@
 
 **Hanging punctuation** nudges marks smaller than a letter — opening quotes, commas, dashes, periods — slightly past the edge of a text block, so the *letters*, not the punctuation, hold a clean optical margin. It's what fine book typesetting does to make a column edge look straight.
 
-CSS `hanging-punctuation` is Safari-only, uses hard-coded character tables, and gives no control over hang amount, threshold, or which characters hang. Optical Margin measures each punctuation character's actual hang amount from Canvas font metrics — not a lookup table — and applies it as a negative margin. Works in every browser, with every font.
+CSS `hanging-punctuation` is Safari-only, uses hard-coded character tables, and gives no control over hang amount, threshold, or which characters hang. Optical Margin measures each punctuation character's actual width in the rendered font — not a lookup table — and hangs a set fraction of it into the margin with a negative margin. Works in every browser, with every font.
 
 ![Two paragraphs of the same quotation. In the top panel the opening quote sits flush, indenting the first letter inside the margin guide. In the bottom panel the opening quote hangs left past the guide so the letter T aligns to the margin, and line-end dashes extend to a clean right edge.](https://raw.githubusercontent.com/over-punch/OpticalMargin/main/assets/hero-before-after.png?v=1)
 
@@ -101,9 +101,9 @@ const opts: OpticalMarginOptions = { threshold: 1, maxHangRatio: 0.8 }
 |--------|---------|-------------|
 | `hangStart` | `true` | Hang opening punctuation at line starts |
 | `hangEnd` | `true` | Hang closing punctuation and sentence-end marks at line ends |
-| `threshold` | `0.5` | Minimum effective hang amount in px before applying (compared after `hangFractions` multiplication). Prevents near-zero corrections on characters that barely protrude |
-| `maxHangRatio` | `0.9` | Max proportion of the character's advance width to hang (0–1). Clamped to [0,1]. Caps extreme hangs on very wide punctuation |
-| `hangFractions` | see below | Per-character hang fraction overrides. Keys are single characters; values are fractions (0–1) of the measured hang to apply (0 = no hang, 1 = full hang). You can pass a sparse object — unspecified characters fall back to built-in defaults. Default fractions: hyphens/dashes (`-` `–` `—`) `1.0`; quotes (`"` `'` `«` `»`) and `.` `!` `?` `…` `)` `]` `0.8`; opening parens/brackets (`(` `[`) and `,` `;` `:` `0.6` |
+| `threshold` | `0.5` | Minimum hang in px before applying. Prevents near-zero corrections. A non-finite value falls back to the default, with a warning |
+| `maxHangRatio` | `0.9` | Max proportion of the character's advance width to hang (0–1). Clamped to [0,1]. Caps every character's fraction |
+| `hangFractions` | see below | Per-character hang fractions: the proportion of the character's advance width to hang (0 = no hang, 1 = the whole character outside the margin). Keys are single characters. You can pass a sparse object — unspecified characters fall back to built-in defaults. Default fractions: hyphens/dashes (`-` `–` `—`) `1.0`; quotes (`"` `'` `«` `»`) and `.` `!` `?` `…` `)` `]` `0.8`; opening parens/brackets (`(` `[`) and `,` `;` `:` `0.6` |
 
 **`OpticalMarginText` component only:**
 
@@ -117,26 +117,30 @@ const opts: OpticalMarginOptions = { threshold: 1, maxHangRatio: 0.8 }
 
 ## How it works
 
-Canvas `measureText` returns both `width` (advance width) and `actualBoundingBoxLeft` / `actualBoundingBoxRight` (visual bounds). The difference between advance width and visual bounds is the optical overhang — how far a character's ink sits inside its typographic cell. That value, clamped by `maxHangRatio` and `threshold`, is applied as `margin-inline-start` (start hang) or `margin-inline-end` (end hang) on each line span. Using logical properties means the direction is correct in both LTR and RTL contexts. The algorithm re-runs on resize and after fonts finish loading (`document.fonts.ready`).
+Each word is wrapped in a plain inline span, with the spaces between words left in the text flow, so the browser lays the paragraph out exactly as before; words are then grouped into lines by position. The first and last character of each line is measured in place with a DOM `Range`, so the measurement uses the rendered font: its size, variation settings, features and your letter-spacing. (Canvas `measureText` is the fallback where the DOM can't measure.) The hang is that advance width × the character's fraction (capped by `maxHangRatio`), applied as `margin-inline-start` (start hang) or `margin-inline-end` (end hang) on each line span. Logical properties keep the direction right in both LTR and RTL. The React hook and Webflow embed re-run on resize and after fonts finish loading.
 
 **Start character set:** `"` `'` `"` `'` `«` `(` `[`
 
 **End character set:** `.` `,` `;` `:` `!` `?` `"` `'` `"` `'` `»` `-` `–` `—` `…` `)` `]`
 
-Falls back to zero hang (no margin applied) in environments without Canvas support (e.g. SSR).
+**Line break safety:** each line is locked (`white-space: nowrap`) with exactly the words the browser put on it, including a word the browser itself splits at a hyphen. Text without spaces between words (CJK, Thai) breaks between characters as usual. Justified text stays justified, `text-indent` applies to the first line only, and `white-space: pre` keeps its lines.
 
-**Line break safety:** Line breaks are locked to the browser's natural layout. Word breaks never change — the negative margins only affect the optical edge position, not line content or width.
+**Markup:** inline elements (`<em>`, `<a>`, `<strong>`…) and your own `<br>` and images are kept, and the original elements are reused, so event listeners on them (React's included) keep working. An element that runs across a line break is split into one copy per line (a link over two lines becomes two links to the same place; only the first keeps its `id`, and listeners are only on the first). `getCleanHTML()` returns the original markup.
 
-**Browser support:** Works in every modern browser. The hang amounts come from Canvas `TextMetrics.actualBoundingBoxLeft` / `actualBoundingBoxRight`, supported in Chrome/Edge 77+, Safari 11.1+, and Firefox 74+. If those metrics are unavailable (very old engines, or SSR with no Canvas), the measured hang is `0` and text renders flush — the same as not applying the effect. There is no layout breakage on unsupported platforms, so it is safe to ship unconditionally.
+**Limits:** words broken by `hyphens: auto` or `&shy;` aren't hyphenated (a locked line can't hyphenate, so the word moves whole to the next line). The lines are locked at the width they had when the effect ran: re-apply after a resize or a font load (the React hook and Webflow embed do this for you).
+
+**Browser support:** works in every modern browser. Where nothing can be measured (SSR), the hang is `0` and text renders flush — the same as not applying the effect.
+
+**React is optional.** The main entry also exports the React hook and component, so it imports `react`; without React installed, import the vanilla API from `@overpunch/opticalmargin/core`.
 
 ---
 
 ## Accessibility
 
-Optical Margin is a presentation-only transform — the injected markup is hidden from assistive technology and never alters the readable text:
+Optical Margin is a presentation transform that keeps the readable text, including its spaces:
 
-- Injected word and line wrappers carry `role="presentation"`, so screen readers traverse the text as a single uninterrupted flow.
-- Injected line-break elements (`<br data-om>`) are `aria-hidden="true"`.
+- The injected line spans carry no semantics; injected line-break elements (`<br data-om>`) are `aria-hidden="true"`.
+- A link or emphasis that wraps across lines is split into one element per line, so a screen reader announces two links where there was one. Keep links short, or don't apply the effect to text where that matters.
 - On `OpticalMarginText`, `aria-label` and all other HTML attributes pass through to the root element unchanged.
 
 **Copy/paste caveat:** because the effect rebuilds the visual lines with real `<br>` elements, text copied from a processed element includes hard line breaks matching the on-screen wrap, rather than reflowing as one paragraph. If a verbatim, unbroken copy is important (e.g. quotable legal text), call `removeOpticalMargin(el, original)` before exposing the text for copy, or keep an off-screen flush copy as the canonical source.
@@ -147,7 +151,7 @@ Optical Margin is a presentation-only transform — the injected markup is hidde
 
 ### `getCleanHTML(el: HTMLElement): string`
 
-Returns the element's innerHTML with all optical-margin injected markup (`om-word` spans, `om-line` spans, `<br data-om>` separators) stripped. Safe to call multiple times — idempotent.
+Returns the element's original innerHTML: for an element this library processed, the exact snapshot it was built from; otherwise the innerHTML with any optical-margin markup (`om-line` spans, `<br data-om>` separators) stripped. Safe to call multiple times — idempotent.
 
 Use this to capture the **original HTML snapshot** before the first `applyOpticalMargin` call. The snapshot must be passed as the second argument to both `applyOpticalMargin` and `removeOpticalMargin` every time they are called.
 
