@@ -509,6 +509,8 @@ export function applyOpticalMargin(
 	const copied = new Set<Element>()
 	const fragment = document.createDocumentFragment()
 
+	/** The line built before the current one (for a separator space at its end). */
+	let prevLineSpan: HTMLElement | null = null
 	lineData.forEach(({ lineItems, startHang, endHang }, lineIndex) => {
 		const lineSpan = document.createElement('span')
 		lineSpan.className = OPTICAL_MARGIN_CLASSES.line
@@ -544,7 +546,19 @@ export function applyOpticalMargin(
 			// The space before a word is kept (collapsed at a line start, but text and copy-paste keep
 			// it); a newline there is the line break itself, which the line span now provides.
 			let lead = seg.lead
-			if (k === 0) lead = lead.replace(/[\r\n]+/g, '')
+			if (k === 0 && /[\r\n]/.test(lead)) {
+				// A newline at a line start is the line break itself, which the line span now provides. If it
+				// was the only separator, a space at the end of the previous line keeps the words apart
+				// (normal white-space, so it collapses at the line end even in a pre line).
+				lead = lead.replace(/[\r\n]+/g, '')
+				if (!lead && prevLineSpan) {
+					const space = document.createElement('span')
+					space.className = OPTICAL_MARGIN_CLASSES.word
+					space.style.whiteSpace = 'normal'
+					space.textContent = ' '
+					prevLineSpan.appendChild(space)
+				}
+			}
 			if (lead) parent.appendChild(document.createTextNode(lead))
 			for (let a = shared; a < ancestors.length; a++) {
 				// The first appearance reuses the original element (emptied), so listeners attached to
@@ -575,6 +589,7 @@ export function applyOpticalMargin(
 		})
 
 		fragment.appendChild(lineSpan)
+		prevLineSpan = lineSpan
 
 		if (lineIndex < lineData.length - 1) {
 			// The author's own <br> at this boundary is kept (getCleanHTML returns it); otherwise an
