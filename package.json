@@ -1,6 +1,6 @@
 {
 	"name": "@overpunch/opticalmargin",
-	"version": "1.1.1",
+	"version": "2.0.0",
 	"description": "Font-metric hanging punctuation — cross-browser optical margin alignment using actual glyph bounds, not a lookup table",
 	"type": "module",
 	"main": "dist/index.cjs",
