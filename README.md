@@ -117,17 +117,17 @@ const opts: OpticalMarginOptions = { threshold: 1, maxHangRatio: 0.8 }
 
 ## How it works
 
-Each word is wrapped in a plain inline span, with the spaces between words left in the text flow, so the browser lays the paragraph out exactly as before; words are then grouped into lines by position. The first and last character of each line is measured in place with a DOM `Range`, so the measurement uses the rendered font: its size, variation settings, features and your letter-spacing. (Canvas `measureText` is the fallback where the DOM can't measure.) The hang is that advance width × the character's fraction (capped by `maxHangRatio`), applied as `margin-inline-start` (start hang) or `margin-inline-end` (end hang) on each line span. Logical properties keep the direction right in both LTR and RTL. The React hook and Webflow embed re-run on resize and after fonts finish loading.
+Words that begin with an opening mark or end with a closing mark are wrapped whole in a plain inline span (`om-start`, `om-end`, or both), in place; nothing else in the paragraph changes, and the browser keeps laying it out as usual. After layout, each mark is measured with a DOM `Range`, so the measurement uses the rendered font: its size, variation settings, features and your letter-spacing. (Canvas `measureText` is the fallback where the DOM can't measure.) A word whose opening mark starts a line gets a negative `margin-inline-start`, and one whose closing mark ends a line a negative `margin-inline-end`, of the mark's advance × its fraction (capped by `maxHangRatio`). Logical properties keep the direction right in both LTR and RTL. Calling `applyOpticalMargin` again with the same snapshot and options only re-measures and re-checks which marks start or end a line; the React hook and Webflow embed do this on resize and after fonts load.
 
-**Start character set:** `"` `'` `"` `'` `«` `(` `[`
+**Start character set:** `"` `'` `“` `‘` `«` `(` `[`
 
-**End character set:** `.` `,` `;` `:` `!` `?` `"` `'` `"` `'` `»` `-` `–` `—` `…` `)` `]`
+**End character set:** `.` `,` `;` `:` `!` `?` `"` `'` `”` `’` `»` `-` `–` `—` `…` `)` `]`
 
-**Line break safety:** each line is locked (`white-space: nowrap`) with exactly the words the browser put on it, including a word the browser itself splits at a hyphen. Text without spaces between words (CJK, Thai) breaks between characters as usual. Justified text stays justified, `text-indent` applies to the first line only, and `white-space: pre` keeps its lines.
+**Aligned edges only:** start hangs apply to start-aligned and justified text, end hangs to end-aligned and justified text. A ragged edge has nothing to align, and a hang there would only move line breaks.
 
-**Markup:** inline elements (`<em>`, `<a>`, `<strong>`…) and your own `<br>` and images are kept, and the original elements are reused, so event listeners on them (React's included) keep working. An element that runs across a line break is split into one copy per line (a link over two lines becomes two links to the same place; only the first keeps its `id`, and listeners are only on the first). `getCleanHTML()` returns the original markup.
+**Line breaks:** the text is never locked into lines, so hyphenation (`hyphens: auto`, `&shy;`) keeps working, CJK and Thai break as usual, and `text-indent`, justification and `white-space: pre` behave as normal. A hang gives its line a little more room (like CSS `hanging-punctuation` where it's supported), which can occasionally move a later line break. The layout check repeats until it settles; a mark whose hang would let its word move to the neighbouring line is left flush rather than flip back and forth. In our test paragraphs (4 fonts, 6 widths, 49 lines starting with a mark), 46 hung by 0.6–0.86 of the mark's width and 3 were left flush.
 
-**Limits:** words broken by `hyphens: auto` or `&shy;` aren't hyphenated (a locked line can't hyphenate, so the word moves whole to the next line). The lines are locked at the width they had when the effect ran: re-apply after a resize or a font load (the React hook and Webflow embed do this for you).
+**Markup:** the author's markup is never split or copied: a link that wraps stays one link, with its listeners, and copy-paste gives the original text. `removeOpticalMargin()` puts the original text nodes back; `getCleanHTML()` returns the original markup.
 
 **Browser support:** works in every modern browser. Where nothing can be measured (SSR), the hang is `0` and text renders flush — the same as not applying the effect.
 
@@ -137,13 +137,20 @@ Each word is wrapped in a plain inline span, with the spaces between words left 
 
 ## Accessibility
 
-Optical Margin is a presentation transform that keeps the readable text, including its spaces:
+Optical Margin is a presentation transform that keeps the readable text and markup as they are:
 
-- The injected line spans carry no semantics; injected line-break elements (`<br data-om>`) are `aria-hidden="true"`.
-- A link or emphasis that wraps across lines is split into one element per line, so a screen reader announces two links where there was one. Keep links short, or don't apply the effect to text where that matters.
+- The injected spans carry no semantics, and no line breaks are added.
+- A link or emphasis that wraps across lines stays one element, so a screen reader announces one link.
+- Copy-paste gives the original text, reflowing as one paragraph.
 - On `OpticalMarginText`, `aria-label` and all other HTML attributes pass through to the root element unchanged.
 
-**Copy/paste caveat:** because the effect rebuilds the visual lines with real `<br>` elements, text copied from a processed element includes hard line breaks matching the on-screen wrap, rather than reflowing as one paragraph. If a verbatim, unbroken copy is important (e.g. quotable legal text), call `removeOpticalMargin(el, original)` before exposing the text for copy, or keep an off-screen flush copy as the canonical source.
+---
+
+## Migrating from 1.x
+
+2.0 stops locking lines. The generated markup changed: there are no `om-line` / `om-word` spans or `<br data-om>` breaks any more, only `om-start` / `om-end` spans around the words with hanging marks (`OPTICAL_MARGIN_CLASSES` is now `{ start, end }`). If your CSS targeted `.om-line` or `.om-word`, update it. End hangs now apply only to justified or end-aligned text, where they show. The options and function signatures are unchanged.
+
+The Webflow embed loads the latest version from jsDelivr, so Webflow sites get 2.0 within the CDN's cache window.
 
 ---
 
@@ -151,7 +158,7 @@ Optical Margin is a presentation transform that keeps the readable text, includi
 
 ### `getCleanHTML(el: HTMLElement): string`
 
-Returns the element's original innerHTML: for an element this library processed, the exact snapshot it was built from; otherwise the innerHTML with any optical-margin markup (`om-line` spans, `<br data-om>` separators) stripped. Safe to call multiple times — idempotent.
+Returns the element's original innerHTML: for an element this library processed, the exact snapshot it was built from; otherwise the innerHTML with any optical-margin markup (`om-start` / `om-end` spans) unwrapped. Safe to call multiple times — idempotent.
 
 Use this to capture the **original HTML snapshot** before the first `applyOpticalMargin` call. The snapshot must be passed as the second argument to both `applyOpticalMargin` and `removeOpticalMargin` every time they are called.
 
