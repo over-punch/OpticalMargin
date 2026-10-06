@@ -64,6 +64,9 @@ function readOptions(el: HTMLElement): OpticalMarginOptions {
  *
  * @param raw - Raw attribute string, expected to be a JSON object of char → fraction
  */
+/** data-om-hang-fractions values already warned about. */
+const warnedFractions = new Set<string>()
+
 function parseHangFractions(raw: string): Record<string, number> | undefined {
 	try {
 		const obj = JSON.parse(raw) as unknown
@@ -75,7 +78,11 @@ function parseHangFractions(raw: string): Record<string, number> | undefined {
 		}
 		return Object.keys(out).length ? out : undefined
 	} catch {
-		console.warn('OpticalMargin: could not parse data-om-hang-fractions as JSON, ignoring')
+		// Once per attribute value: a refit on every resize mustn't repeat the warning.
+		if (!warnedFractions.has(raw)) {
+			warnedFractions.add(raw)
+			console.warn('OpticalMargin: could not parse data-om-hang-fractions as JSON, ignoring')
+		}
 		return undefined
 	}
 }
@@ -87,6 +94,23 @@ function parseHangFractions(raw: string): Record<string, number> | undefined {
  *
  * @param el - Element to align
  */
+/** Refits an element whose own width changed (a container resize the window doesn't see). */
+const widths = new WeakMap<Element, number>()
+const resizeObserver = typeof ResizeObserver !== 'undefined'
+	? new ResizeObserver((entries) => {
+		for (const entry of entries) {
+			const el = entry.target as HTMLElement
+			const w = Math.round(entry.contentRect.width)
+			if (widths.get(el) === w) continue
+			const first = !widths.has(el)
+			widths.set(el, w)
+			if (first) continue
+			const originalHTML = INSTANCES.get(el)
+			if (originalHTML !== undefined && el.isConnected) applyOpticalMargin(el, originalHTML, readOptions(el))
+		}
+	})
+	: null
+
 function initElement(el: HTMLElement): void {
 	// Snapshot clean HTML on first sight; reuse it on every subsequent call so we never
 	// capture injected om-* markup as if it were the original.
@@ -97,6 +121,7 @@ function initElement(el: HTMLElement): void {
 	}
 	applyOpticalMargin(el, originalHTML, readOptions(el))
 	tracked.add(el)
+	resizeObserver?.observe(el)
 }
 
 /**
@@ -106,6 +131,8 @@ function initElement(el: HTMLElement): void {
  */
 function refit(): void {
 	tracked.forEach((el) => {
+		// Removed from the page: stop tracking it.
+		if (!el.isConnected) { tracked.delete(el); return }
 		const originalHTML = INSTANCES.get(el)
 		if (originalHTML === undefined) return
 		applyOpticalMargin(el, originalHTML, readOptions(el))
@@ -122,6 +149,8 @@ function destroy(el: HTMLElement): void {
 	if (originalHTML !== undefined) removeOpticalMargin(el, originalHTML)
 	INSTANCES.delete(el)
 	tracked.delete(el)
+	resizeObserver?.unobserve(el)
+	widths.delete(el)
 }
 
 /**
@@ -135,9 +164,13 @@ function init(root: ParentNode = document): void {
 
 // Re-fit on viewport resize — the container's width drives line breaks, which drive
 // which punctuation hangs. Throttled to one re-fit per animation frame so a drag-resize
-// doesn't re-run the whole read/measure/write pass on every event.
+// doesn't re-run the whole read/measure/write pass on every event. A height-only resize (a mobile
+// URL bar showing or hiding) can't move line breaks and is ignored.
 let resizeRaf = 0
+let lastWidth = typeof window !== 'undefined' ? window.innerWidth : 0
 function onResize(): void {
+	if (window.innerWidth === lastWidth) return
+	lastWidth = window.innerWidth
 	if (resizeRaf) cancelAnimationFrame(resizeRaf)
 	resizeRaf = requestAnimationFrame(() => { resizeRaf = 0; refit() })
 }
@@ -155,6 +188,24 @@ function autoInit(): void {
 			init()
 		}
 		window.addEventListener('resize', onResize)
+		// Fonts that load later change line breaks and glyph widths.
+		document.fonts?.addEventListener?.('loadingdone', () => {
+			if (resizeRaf) cancelAnimationFrame(resizeRaf)
+			resizeRaf = requestAnimationFrame(() => { resizeRaf = 0; refit() })
+		})
+		// Elements added later (CMS lists, interactions) are aligned when they appear.
+		if (typeof MutationObserver !== 'undefined' && document.body) {
+			new MutationObserver((records) => {
+				for (const rec of records) {
+					rec.addedNodes.forEach((n) => {
+						if (!(n instanceof HTMLElement) || !n.isConnected) return
+						const found = n.matches(`[${OPT_IN_ATTR}]`) ? [n] : []
+						n.querySelectorAll<HTMLElement>(`[${OPT_IN_ATTR}]`).forEach((el) => found.push(el))
+						for (const el of found) if (!INSTANCES.has(el)) initElement(el)
+					})
+				}
+			}).observe(document.body, { childList: true, subtree: true })
+		}
 	}
 	if (document.readyState === 'loading') {
 		document.addEventListener('DOMContentLoaded', run, { once: true })
