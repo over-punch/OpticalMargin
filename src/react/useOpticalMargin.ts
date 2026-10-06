@@ -9,25 +9,31 @@ import type { OpticalMarginOptions } from '../core/types'
  *
  * @param options - Optical margin options. All properties are optional (defaults apply).
  */
-export function useOpticalMargin(options: OpticalMarginOptions = {}) {
+export function useOpticalMargin(options: OpticalMarginOptions = {}, contentKey?: string) {
+	// contentKey: pass a value that changes when the element's content changes (OpticalMarginText
+	// derives one from its children). The library rewrites the element's DOM, so new content needs a
+	// fresh element and a fresh snapshot rather than React patching nodes that are no longer there.
 	const ref = useRef<HTMLElement>(null)
 	const originalHTMLRef = useRef<string | null>(null)
+	/** The element originalHTMLRef was read from; a new element is read afresh. */
+	const sourceElRef = useRef<HTMLElement | null>(null)
 	const optionsRef = useRef(options)
 	optionsRef.current = options
 
-	const { hangStart, hangEnd, threshold, maxHangRatio, hangFractions } = options
+	const { hangStart, hangEnd, threshold, maxHangRatio } = options
+	// A JSON key, so an inline hangFractions object doesn't re-run the effect on every render.
+	const fractionsKey = options.hangFractions ? JSON.stringify(options.hangFractions) : ''
 
 	const run = useCallback(() => {
 		const el = ref.current
 		if (!el) return
-		if (originalHTMLRef.current === null) {
+		if (originalHTMLRef.current === null || sourceElRef.current !== el) {
 			originalHTMLRef.current = getCleanHTML(el)
+			sourceElRef.current = el
 		}
 		applyOpticalMargin(el, originalHTMLRef.current, optionsRef.current)
-	// hangFractions is intentionally included: changes to the fractions object
-	// should trigger a fresh run even if other options are unchanged.
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [hangStart, hangEnd, threshold, maxHangRatio, hangFractions])
+	}, [hangStart, hangEnd, threshold, maxHangRatio, fractionsKey, contentKey])
 
 	useLayoutEffect(() => {
 		run()
