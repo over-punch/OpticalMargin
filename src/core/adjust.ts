@@ -1,4 +1,4 @@
-// optical-margin/src/core/adjust.ts — framework-agnostic optical margin alignment algorithm
+// optical-margin/src/core/adjust.ts — framework-agnostic optical margin alignment: hanging punctuation on the words that start or end a line, in the text flow (no line locking)
 import { OPTICAL_MARGIN_CLASSES, type OpticalMarginOptions } from './types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -118,95 +118,38 @@ function canvasAdvance(char: string, cs: CSSStyleDeclaration | null, ctx: Canvas
 	return advance
 }
 
-/**
- * Advance width of the first (or last) non-space character of an item in the live DOM, measured
- * with a Range on that character, so the font, size, variation settings, features and the
- * author's letter-spacing are all as rendered. Returns 0 when the DOM can't measure it.
- */
-function domAdvance(item: HTMLElement, fromEnd: boolean): number {
-	const text = item.firstChild
-	if (!text || text.nodeType !== Node.TEXT_NODE || typeof document.createRange !== 'function') return 0
-	const value = text.textContent ?? ''
-	const chars = Array.from(value)
-	if (!chars.length) return 0
-	const ch = fromEnd ? chars[chars.length - 1] : chars[0]
-	const startOffset = fromEnd ? value.length - ch.length : 0
-	try {
-		const range = document.createRange()
-		range.setStart(text, startOffset)
-		range.setEnd(text, startOffset + ch.length)
-		const w = range.getBoundingClientRect?.().width ?? 0
-		return Number.isFinite(w) && w > 0 ? w : 0
-	} catch {
-		return 0
-	}
+/** How many read/write rounds layoutHangs may take to settle (a hang can move later line breaks). */
+const MAX_LAYOUT_PASSES = 4
+
+/** Elements whose text is never touched: scripts, styles, form fields, templates. */
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'TEMPLATE', 'NOSCRIPT', 'SELECT', 'OPTION'])
+
+/** One original text node and the nodes that replaced it, so remove() can put the original back. */
+interface Wrapped { original: Text; produced: Node[] }
+
+/** What a run changed on an element. */
+interface ElementState {
+	originalHTML: string
+	optionsKey: string
+	wrapped: Wrapped[]
+	/** Words that begin with an opening mark (the span holds the whole word, so it can still hyphenate). */
+	starts: { span: HTMLElement; char: string }[]
+	/** Words that end with a closing mark. */
+	ends: { span: HTMLElement; char: string }[]
+	opts: ResolvedOptions
 }
 
-/** Per-item data kept during one apply: the whitespace before it, an author <br> before it, and whether it is a whole element. */
-interface ItemMeta {
-	lead: string
-	breakBefore: HTMLBRElement | null
-	atomic?: boolean
+/** Options after defaults and validation. */
+interface ResolvedOptions {
+	hangStart: boolean
+	hangEnd: boolean
+	threshold: number
+	maxHangRatio: number
+	hangFractions: Record<string, number>
 }
 
-/** A piece of one item on one line: usually a whole word, or part of a word the browser breaks. */
-interface Segment {
-	item: HTMLElement
-	text: string
-	top: number
-	bottom: number
-	lead: string
-	breakBefore: HTMLBRElement | null
-	atomic: boolean
-	/** Whether this is the item's first segment (its start is the span's start). */
-	first: boolean
-}
-
-/**
- * Splits a text node that the browser lays out over several lines into one piece per line, by
- * measuring where each character's box starts a new line. Used only for the rare word that wraps.
- */
-function splitAtLineBreaks(node: Text, text: string): { text: string; top: number; bottom: number }[] {
-	const pieces: { text: string; top: number; bottom: number }[] = []
-	const range = document.createRange()
-	let start = 0
-	let top = NaN, bottom = NaN
-	for (let i = 0; i < text.length; i++) {
-		range.setStart(node, i)
-		range.setEnd(node, i + 1)
-		const rect = range.getClientRects()[0]
-		if (!rect) continue
-		const middle = (rect.top + rect.bottom) / 2
-		if (Number.isNaN(top)) { top = rect.top; bottom = rect.bottom; continue }
-		if (middle > bottom) {
-			pieces.push({ text: text.slice(start, i), top, bottom })
-			start = i
-			top = rect.top
-			bottom = rect.bottom
-		} else {
-			bottom = Math.max(bottom, rect.bottom)
-		}
-	}
-	pieces.push({ text: text.slice(start), top: Number.isNaN(top) ? 0 : top, bottom: Number.isNaN(bottom) ? 0 : bottom })
-	return pieces.filter((p) => p.text.length > 0)
-}
-
-/** Elements kept whole during the rebuild (no text of their own to split). */
-const ATOMIC_TAGS = new Set(['IMG', 'SVG', 'INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'VIDEO', 'AUDIO', 'CANVAS', 'IFRAME', 'OBJECT', 'MATH'])
-
-/** Scripts written without spaces between words: every grapheme is a possible line break. */
-const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u
-
-/**
- * Splits a space-free token into the pieces a line may break between: graphemes for CJK, Thai and
- * similar scripts (Intl.Segmenter keeps combining marks with their base), the whole token otherwise.
- */
-function splitUnspaced(token: string): string[] {
-	if (!UNSPACED_SCRIPT.test(token)) return [token]
-	const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment(t: string): Iterable<{ segment: string }> } }).Segmenter
-	if (!Seg) return Array.from(token)
-	return Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(token), (seg) => seg.segment)
-}
+/** Per-element state. */
+const states = new WeakMap<HTMLElement, ElementState>()
 
 /** A finite number, else the default (with a one-time warning). */
 function finiteOr(value: unknown, fallback: number, name: string): number {
@@ -222,89 +165,153 @@ function finiteOr(value: unknown, fallback: number, name: string): number {
 /** Warnings already printed. */
 const warned = new Set<string>()
 
-/** The snapshot each processed element was built from, returned by getCleanHTML. */
-const originals = new WeakMap<HTMLElement, string>()
-
-/**
- * The element's original nodes: each element's child list, so a refit or removal can put the very
- * same nodes back (keeping their event listeners, React's included) instead of re-parsing HTML.
- */
-interface NodeSnapshot { html: string; children: Map<Node, Node[]> }
-const snapshots = new WeakMap<HTMLElement, NodeSnapshot>()
-
-/** Records every element's child list under root. */
-function takeSnapshot(root: HTMLElement, html: string): NodeSnapshot {
-	const children = new Map<Node, Node[]>()
-	const visit = (node: Node) => {
-		children.set(node, Array.from(node.childNodes))
-		node.childNodes.forEach((child) => { if (child.nodeType === Node.ELEMENT_NODE) visit(child) })
-	}
-	visit(root)
-	return { html, children }
+/** Split text into graphemes (combining marks stay with their base). */
+function graphemes(text: string): string[] {
+	const Seg = (Intl as unknown as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment(t: string): Iterable<{ segment: string }> } }).Segmenter
+	if (!Seg) return Array.from(text)
+	return Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(text), (seg) => seg.segment)
 }
 
-/** Puts the original nodes back where they were. */
-function restoreSnapshot(snapshot: NodeSnapshot): void {
-	snapshot.children.forEach((kids, parent) => (parent as Element).replaceChildren(...kids))
+/** The flow of an element: its text nodes in order, with author line breaks and replaced elements between them. */
+type FlowItem = { kind: 'text'; node: Text } | { kind: 'break' } | { kind: 'object' }
+
+/** Collect the element's text flow (recursive childNodes, not TreeWalker), skipping scripts, styles, fields and editable regions. */
+function collectFlow(root: Node, out: FlowItem[] = []): FlowItem[] {
+	root.childNodes.forEach((child) => {
+		if (child.nodeType === Node.TEXT_NODE) out.push({ kind: 'text', node: child as Text })
+		else if (child.nodeType === Node.ELEMENT_NODE) {
+			const el = child as HTMLElement
+			if (el.tagName === 'BR') { out.push({ kind: 'break' }); return }
+			if (SKIP_TAGS.has(el.tagName) || el.isContentEditable) return
+			if (!el.hasChildNodes()) { out.push({ kind: 'object' }); return }
+			collectFlow(el, out)
+		}
+	})
+	return out
 }
 
-/**
- * Pass 1: bring the element back to its original content, reusing the original nodes when they
- * are still known (a refit, or a first run on an element that already holds originalHTML).
- */
-function resetElement(element: HTMLElement, originalHTML: string): void {
-	const snap = snapshots.get(element)
-	if (snap && snap.html === originalHTML) {
-		restoreSnapshot(snap)
-		return
+/** The next node after `node` in document order, staying inside `root`. */
+function nextInOrder(node: Node, root: Node): Node | null {
+	if (node.firstChild) return node.firstChild
+	let n: Node | null = node
+	while (n && n !== root) {
+		if (n.nextSibling) return n.nextSibling
+		n = n.parentNode
 	}
-	if (snap) restoreSnapshot(snap)
-	const current = element.querySelector(`.${OPTICAL_MARGIN_CLASSES.line}`) ? null : element.innerHTML
-	if (current !== originalHTML) element.innerHTML = originalHTML
-	snapshots.set(element, takeSnapshot(element, originalHTML))
+	return null
+}
+
+/** The rectangle of the first visible character after `from` inside `root` (null when nothing follows). */
+function nextCharRect(from: Node, root: Node): DOMRect | null {
+	let n: Node | null = from.lastChild ? from.lastChild : from
+	// Skip past `from`'s own content.
+	while (n && n !== root && !n.nextSibling) n = n.parentNode
+	n = n && n !== root ? n.nextSibling : null
+	for (; n; n = nextInOrder(n, root)) {
+		if (n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === 'BR') return null
+		if (n.nodeType !== Node.TEXT_NODE) continue
+		const text = n.textContent ?? ''
+		const i = text.search(/\S/)
+		if (i < 0) continue
+		const range = document.createRange()
+		range.setStart(n, i)
+		range.setEnd(n, i + 1)
+		const r = range.getClientRects?.()[0] ?? range.getBoundingClientRect?.()
+		return r ?? null
+	}
+	return null
+}
+
+/** The rectangle of the last visible character before `from` inside `root` (null when nothing precedes it on the flow). */
+function prevCharRect(from: Node, root: Node): DOMRect | null {
+	// Walk backwards in document order.
+	const prevInOrder = (node: Node): Node | null => {
+		if (node === root) return null
+		if (node.previousSibling) {
+			let n: Node = node.previousSibling
+			while (n.lastChild) n = n.lastChild
+			return n
+		}
+		return node.parentNode && node.parentNode !== root ? node.parentNode : null
+	}
+	for (let n = prevInOrder(from); n; n = prevInOrder(n)) {
+		if (n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === 'BR') return null
+		if (n.nodeType !== Node.TEXT_NODE) continue
+		const text = n.textContent ?? ''
+		let i = text.length - 1
+		while (i >= 0 && /\s/.test(text[i])) i--
+		if (i < 0) continue
+		const range = document.createRange()
+		range.setStart(n, i)
+		range.setEnd(n, i + 1)
+		const rects = range.getClientRects?.()
+		return (rects && rects[rects.length - 1]) ?? range.getBoundingClientRect?.() ?? null
+	}
+	return null
+}
+
+/** Width of one character at the start or end of a span's text, as rendered (Canvas where the DOM can't measure). */
+function markAdvance(span: HTMLElement, char: string, atEnd: boolean): number {
+	const text = span.firstChild
+	if (text && text.nodeType === Node.TEXT_NODE && typeof document.createRange === 'function') {
+		const value = text.textContent ?? ''
+		const start = atEnd ? value.length - char.length : 0
+		try {
+			const range = document.createRange()
+			range.setStart(text, Math.max(0, start))
+			range.setEnd(text, Math.max(0, start) + char.length)
+			const w = range.getBoundingClientRect?.().width ?? 0
+			if (Number.isFinite(w) && w > 0) return w
+		} catch { /* fall through */ }
+	}
+	// The DOM couldn't measure it (no layout): the character's advance in the span's font, from Canvas.
+	return canvasAdvance(char, typeof getComputedStyle !== 'undefined' ? getComputedStyle(span) : null, getCanvas()?.getContext('2d') ?? null)
+}
+
+/** Put an element's original text nodes back and drop the run's state. */
+function unwrap(element: HTMLElement): void {
+	const state = states.get(element)
+	if (!state) return
+	for (const w of state.wrapped) {
+		const first = w.produced.find((n) => n.parentNode)
+		if (first?.parentNode) first.parentNode.insertBefore(w.original, first)
+		w.produced.forEach((n) => n.parentNode?.removeChild(n))
+	}
+	states.delete(element)
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Strips all optical-margin injected markup from a clone of the element and returns the clean
- * innerHTML (the author's own <br> tags are kept). Safe to call multiple times — idempotent.
+ * Returns the element's innerHTML without optical-margin markup (the start/end spans unwrapped).
+ * Safe to call multiple times — idempotent.
  *
  * @param el - Element that may contain optical-margin markup
  */
 export function getCleanHTML(el: HTMLElement): string {
-	// An element this library processed returns the exact snapshot it was built from (an element the
-	// browser wrapped across lines was rebuilt as one copy per line, which unwrapping can't merge).
-	const original = originals.get(el)
-	if (original !== undefined && el.querySelector(`.${OPTICAL_MARGIN_CLASSES.line}`)) return original
 	const clone = el.cloneNode(true) as HTMLElement
-	const injected = clone.querySelectorAll(
-		`.${OPTICAL_MARGIN_CLASSES.word}, .${OPTICAL_MARGIN_CLASSES.line}`,
-	)
-	injected.forEach((node) => {
+	clone.querySelectorAll(`.${OPTICAL_MARGIN_CLASSES.start}, .${OPTICAL_MARGIN_CLASSES.end}`).forEach((node) => {
 		const parent = node.parentNode
 		if (!parent) return
 		while (node.firstChild) parent.insertBefore(node.firstChild, node)
 		parent.removeChild(node)
 	})
-	// Also clean up injected <br> elements between line spans
-	clone.querySelectorAll('br[data-om]').forEach((br) => br.parentNode?.removeChild(br))
-	// Merge the text nodes the rebuild split, so the result matches the original markup
 	clone.normalize()
 	return clone.innerHTML
 }
 
 /**
- * Applies optical margin alignment (hanging punctuation) to an element.
+ * Applies optical margin alignment (hanging punctuation) to an element, without locking its lines.
  *
- * The algorithm runs four passes:
- *  1. Reset — restore the element to the originalHTML snapshot
- *  2. Word wrap — wrap each word in a plain inline om-word span, leaving the spaces between words
- *     in the text flow, so the browser breaks lines exactly as it does for the original text
- *  3. Read — group words into visual lines by position, and measure the advance of each line's
- *     first and last character in place
- *  4. Write — rebuild the content as one om-line span per line (inline markup kept, a link stays
- *     one link within a line) with negative margin-inline-start/end for the hanging punctuation
+ * Words that begin with an opening mark (“ ‘ « ( [ and straight quotes) or end with a closing mark
+ * (. , ; : ! ? ” ’ » ) ] - – — …) are wrapped whole in a span, in place. After layout, a word whose mark
+ * starts a line gets a negative start margin, so the mark hangs into the margin, and one whose mark ends a
+ * line gets a negative end margin. Hangs apply on the aligned edges only: the start edge of start-aligned or
+ * justified text, the end edge of end-aligned or justified text (a ragged edge has nothing to align).
+ *
+ * The text stays one flow: links and other elements are never split or copied, hyphenation and `&shy;`
+ * keep working, and copy-paste is unchanged. Calling it again with the same snapshot and options (on
+ * resize, after fonts load) only re-measures and re-checks which marks start or end a line.
  *
  * @param element      - Live DOM element to adjust (must be rendered and visible)
  * @param originalHTML - HTML snapshot taken before the first run (from getCleanHTML)
@@ -315,311 +322,174 @@ export function applyOpticalMargin(
 	originalHTML: string,
 	options: OpticalMarginOptions | null = {},
 ): void {
-	if (typeof window === 'undefined') return
-	const opts = options ?? {}
+	if (typeof window === 'undefined' || !element) return
+	const o = options ?? {}
+	const opts: ResolvedOptions = {
+		hangStart: o.hangStart ?? DEFAULTS.hangStart,
+		hangEnd: o.hangEnd ?? DEFAULTS.hangEnd,
+		threshold: finiteOr(o.threshold, DEFAULTS.threshold, 'threshold'),
+		// Clamp maxHangRatio to [0,1] — values outside this range produce nonsensical hang
+		maxHangRatio: Math.max(0, Math.min(1, finiteOr(o.maxHangRatio, DEFAULTS.maxHangRatio, 'maxHangRatio'))),
+		hangFractions: o.hangFractions ?? DEFAULT_HANG_FRACTIONS,
+	}
+	const optionsKey = JSON.stringify(opts)
 
-	const hangStart    = opts.hangStart    ?? DEFAULTS.hangStart
-	const hangEnd      = opts.hangEnd      ?? DEFAULTS.hangEnd
-	const threshold    = finiteOr(opts.threshold, DEFAULTS.threshold, 'threshold')
-	// Clamp maxHangRatio to [0,1] — values outside this range produce nonsensical hang
-	const maxHangRatio = Math.max(0, Math.min(1, finiteOr(opts.maxHangRatio, DEFAULTS.maxHangRatio, 'maxHangRatio')))
-	const hangFractions = opts.hangFractions ?? DEFAULT_HANG_FRACTIONS
-
-	// --- Pass 1: Reset ---
-	resetElement(element, originalHTML)
-	originals.set(element, originalHTML)
-
-	if (!originalHTML.trim()) {
-		// Nothing to do on an empty element
+	// Same snapshot and options: just re-measure (fonts may have loaded) and re-check line ends.
+	const existing = states.get(element)
+	if (existing && existing.originalHTML === originalHTML && existing.optionsKey === optionsKey && existing.wrapped.every((w) => w.produced.some((n) => n.isConnected))) {
+		layoutHangs(element, existing)
 		return
 	}
 
-	// Guard: element must be laid out before BCR measurements are meaningful.
-	// offsetWidth is preferred; fall back to getBoundingClientRect for environments
-	// (e.g. happy-dom in tests) where offsetWidth is always 0.
-	if (!element.offsetWidth && !element.getBoundingClientRect().width) return
+	// --- Reset: the original text nodes back, or the snapshot if the content has changed ---
+	unwrap(element)
+	if (getCleanHTML(element) !== originalHTML) element.innerHTML = originalHTML
+	if (!originalHTML.trim() || (!opts.hangStart && !opts.hangEnd)) return
 
-	// --- Pass 2: Word wrap ---
-	// Each word goes in a plain inline span holding only the word; the whitespace around it stays as
-	// text in the flow. (Measuring words as inline-blocks with their leading space inside dropped that
-	// space, packed lines too tightly, and the locked nowrap lines then overflowed.) Text without
-	// spaces (CJK, Thai) is split into graphemes so each character is a possible break. Author <br>,
-	// images and other childless elements become atomic items so they survive the rebuild.
-	// createTreeWalker is intentionally avoided — it skips inline elements in happy-dom 12.
-	const items: HTMLElement[] = []
-	const meta = new WeakMap<Element, ItemMeta>()
-	let pendingSpace = ''
-	let pendingBreak: HTMLBRElement | null = null
-
-	const pushWord = (span: HTMLElement, lead: string) => {
-		meta.set(span, { lead: pendingSpace + lead, breakBefore: pendingBreak })
-		pendingSpace = ''
-		pendingBreak = null
-		items.push(span)
+	// --- Wrap: marks that can start or end a line, in place ---
+	const flow = collectFlow(element)
+	const state: ElementState = { originalHTML, optionsKey, wrapped: [], starts: [], ends: [], opts }
+	/** Whether the flow after item k (at its start) begins with whitespace, a line break or nothing. */
+	const followedByBreak = (k: number): boolean => {
+		for (let j = k; j < flow.length; j++) {
+			const f = flow[j]
+			if (f.kind === 'break') return true
+			if (f.kind === 'object') return false
+			const t = f.node.data
+			if (!t) continue
+			return /^\s/.test(t)
+		}
+		return true
 	}
-
-	const walk = (node: Node): void => {
-		if (node.nodeType === Node.TEXT_NODE) {
-			const textNode = node as Text
-			const text = textNode.textContent ?? ''
-			if (!text.trim()) {
-				// Whitespace between elements ("<em>a</em> <b>b</b>"): carried as the next word's lead.
-				pendingSpace += text
-				return
-			}
-			const fragment = document.createDocumentFragment()
-			let lead = ''
-			for (const token of text.split(/(\s+)/)) {
-				if (!token) continue
-				if (/^\s+$/.test(token)) {
-					fragment.appendChild(document.createTextNode(token))
-					lead += token
-					continue
-				}
-				for (const piece of splitUnspaced(token)) {
-					const span = document.createElement('span')
-					span.className = OPTICAL_MARGIN_CLASSES.word
-					// No automatic hyphenation inside a word: a locked nowrap line can't hyphenate, so the
-					// measurement mustn't either (a word split across two lines would land on one).
-					span.style.hyphens = 'manual'
-					span.textContent = piece
-					fragment.appendChild(span)
-					pushWord(span, lead)
-					lead = ''
-				}
-			}
-			// Trailing whitespace of this text node leads the next word.
-			pendingSpace += lead
-			textNode.parentNode!.replaceChild(fragment, textNode)
-			return
-		}
-		if (node.nodeType !== Node.ELEMENT_NODE) return
-		const el = node as Element
-		if (el.tagName === 'BR') {
-			pendingBreak = el as HTMLBRElement
-			return
-		}
-		if (!el.hasChildNodes() || ATOMIC_TAGS.has(el.tagName)) {
-			meta.set(el, { lead: pendingSpace, breakBefore: pendingBreak, atomic: true })
-			pendingSpace = ''
-			pendingBreak = null
-			items.push(el as HTMLElement)
-			return
-		}
-		Array.from(el.childNodes).forEach(walk)
-	}
-	Array.from(element.childNodes).forEach(walk)
-
-	if (items.length === 0) {
-		element.innerHTML = originalHTML
-		return
-	}
-
-	// --- Pass 3: Read — group items into lines, measure hanging characters (no writes) ---
-	// A word starts a new line when its vertical middle is below the bottom of the current line's
-	// boxes. Comparing middles, not tops, keeps a superscript or a taller inline image in its line,
-	// and still separates lines whose glyph boxes overlap (fonts with tall ascenders and descenders,
-	// such as Arabic, set at a tight line-height).
-	// A word the browser itself breaks across lines (after a hyphen: "words-|everywhere") is split
-	// into one segment per line at the real break, found by measuring its characters.
-	const segments: Segment[] = []
-	for (const item of items) {
-		const rects = item.getClientRects?.()
-		const rect = rects && rects.length ? rects[0] : item.getBoundingClientRect()
-		const info = meta.get(item)
-		const text = info?.atomic ? '' : item.textContent ?? ''
-		if (rects && rects.length > 1 && !info?.atomic && item.firstChild?.nodeType === Node.TEXT_NODE) {
-			for (const [k, piece] of splitAtLineBreaks(item.firstChild as Text, text).entries()) {
-				segments.push({ item, text: piece.text, top: piece.top, bottom: piece.bottom, lead: k === 0 ? info?.lead ?? '' : '', breakBefore: k === 0 ? info?.breakBefore ?? null : null, atomic: false, first: k === 0 })
-			}
-			continue
-		}
-		segments.push({ item, text, top: rect.top, bottom: rect.bottom ?? rect.top, lead: info?.lead ?? '', breakBefore: info?.breakBefore ?? null, atomic: !!info?.atomic, first: true })
-	}
-
-	const lines: Segment[][] = []
-	let current: Segment[] | null = null
-	let groupBottom = -Infinity
-	for (const seg of segments) {
-		const middle = (seg.top + seg.bottom) / 2
-		if (current === null || middle > groupBottom || (current.length > 0 && seg.breakBefore)) {
-			current = []
-			lines.push(current)
-			groupBottom = seg.bottom
-		} else {
-			groupBottom = Math.max(groupBottom, seg.bottom)
-		}
-		current.push(seg)
-	}
-
-	const computed = typeof getComputedStyle !== 'undefined' ? getComputedStyle(element) : null
-	const canvasCtx = getCanvas()?.getContext('2d') ?? null
-
-	/** Hang in px for a character: advance × its fraction, capped at advance × maxHangRatio. */
-	const hangFor = (char: string, advance: number): number => {
-		const fraction = Math.max(0, Math.min(1, hangFractions[char] ?? DEFAULT_HANG_FRACTIONS[char] ?? 1.0))
-		return advance * Math.min(fraction, maxHangRatio)
-	}
-
-	const lineData = lines.map((lineItems) => {
-		const first = lineItems[0]
-		const last = lineItems[lineItems.length - 1]
-		const firstChar = first.atomic ? '' : Array.from(first.text.trimStart())[0] ?? ''
-		const lastChars = last.atomic ? [] : Array.from(last.text.trimEnd())
-		const lastChar = lastChars[lastChars.length - 1] ?? ''
-		let startHang = 0
-		if (hangStart && firstChar && HANG_START_CHARS.has(firstChar)) {
-			// A segment that starts mid-word can't be measured from its span's start: use Canvas.
-			const advance = (first.first ? domAdvance(first.item, false) : 0) || canvasAdvance(firstChar, computed, canvasCtx)
-			startHang = hangFor(firstChar, advance)
-		}
-		let endHang = 0
-		if (hangEnd && lastChar && HANG_END_CHARS.has(lastChar)) {
-			const isWholeEnd = last.text === (last.item.textContent ?? '') || !last.first
-			const advance = (isWholeEnd ? domAdvance(last.item, true) : 0) || canvasAdvance(lastChar, computed, canvasCtx)
-			endHang = hangFor(lastChar, advance)
-		}
-		return { lineItems, startHang, endHang }
-	})
-
-	// Author settings a locked line has to carry over.
-	const textAlign = computed?.textAlign ?? ''
-	const justify = textAlign === 'justify'
-	const ws = computed?.whiteSpace ?? ''
-	const lineWhiteSpace = ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces' ? 'pre' : 'nowrap'
-	const pad = (v: string | undefined) => parseFloat(v ?? '') || 0
-	const contentWidth = justify && computed
-		? element.getBoundingClientRect().width - pad(computed.paddingLeft) - pad(computed.paddingRight) - pad(computed.borderLeftWidth) - pad(computed.borderRightWidth)
-		: 0
-
-	// --- Pass 4: Write — one om-line span per line ---
-	// Ancestor chains are read for every segment before anything moves.
-	const chains = new Map<Segment, Element[]>()
-	for (const line of lineData) {
-		for (const seg of line.lineItems) {
-			const ancestors: Element[] = []
-			let node: Element | null = seg.item.parentElement
-			while (node && node !== element) {
-				ancestors.unshift(node)
-				node = node.parentElement
-			}
-			chains.set(seg, ancestors)
-		}
-	}
-	const copied = new Set<Element>()
-	const fragment = document.createDocumentFragment()
-
-	/** The line built before the current one (for a separator space at its end). */
-	let prevLineSpan: HTMLElement | null = null
-	lineData.forEach(({ lineItems, startHang, endHang }, lineIndex) => {
-		const lineSpan = document.createElement('span')
-		lineSpan.className = OPTICAL_MARGIN_CLASSES.line
-		lineSpan.style.display = 'inline-block'
-		lineSpan.style.whiteSpace = lineWhiteSpace
-		// text-indent is inherited: without this, every line would be indented, not just the first.
-		lineSpan.style.textIndent = '0'
-		const hangsStart = startHang > threshold
-		const hangsEnd = endHang > threshold
-		if (hangsStart) lineSpan.style.marginInlineStart = `-${startHang}px`
-		if (hangsEnd) lineSpan.style.marginInlineEnd = `-${endHang}px`
-
-		// Justified text: every line but the last of a paragraph (and lines before an author <br>)
-		// fills the column, including the hang.
-		const nextItem = lineData[lineIndex + 1]?.lineItems[0]
-		const endsParagraph = !nextItem || !!nextItem.breakBefore
-		if (justify && !endsParagraph && contentWidth > 0) {
-			lineSpan.style.width = `${contentWidth + (hangsStart ? startHang : 0) + (hangsEnd ? endHang : 0)}px`
-			lineSpan.style.textAlignLast = 'justify'
-		}
-
-		// Rebuild the line's text inside copies of its inline ancestors. Consecutive words that share
-		// an ancestor share one copy (one link stays one link within a line); an element that continues
-		// onto a later line is copied again there, without its id so ids stay unique.
-		let openChain: { source: Element; clone: Element }[] = []
-		lineItems.forEach((seg, k) => {
-			const item = seg.item
-			const ancestors = chains.get(seg) ?? []
-			let shared = 0
-			while (shared < openChain.length && shared < ancestors.length && openChain[shared].source === ancestors[shared]) shared++
-			openChain = openChain.slice(0, shared)
-			let parent: Node = shared ? openChain[shared - 1].clone : lineSpan
-			// The space before a word is kept (collapsed at a line start, but text and copy-paste keep
-			// it); a newline there is the line break itself, which the line span now provides.
-			let lead = seg.lead
-			if (k === 0 && /[\r\n]/.test(lead)) {
-				// A newline at a line start is the line break itself, which the line span now provides. If it
-				// was the only separator, a space at the end of the previous line keeps the words apart
-				// (normal white-space, so it collapses at the line end even in a pre line).
-				lead = lead.replace(/[\r\n]+/g, '')
-				if (!lead && prevLineSpan) {
-					const space = document.createElement('span')
-					space.className = OPTICAL_MARGIN_CLASSES.word
-					space.style.whiteSpace = 'normal'
-					space.textContent = ' '
-					prevLineSpan.appendChild(space)
-				}
-			}
-			if (lead) parent.appendChild(document.createTextNode(lead))
-			for (let a = shared; a < ancestors.length; a++) {
-				// The first appearance reuses the original element (emptied), so listeners attached to
-				// it — including React's — keep working; later lines get a copy without its id.
-				let copy: Element
-				if (copied.has(ancestors[a])) {
-					copy = ancestors[a].cloneNode(false) as Element
-					copy.removeAttribute('id')
-				} else {
-					copy = ancestors[a]
-					copy.replaceChildren()
-				}
-				copied.add(ancestors[a])
-				parent.appendChild(copy)
-				openChain.push({ source: ancestors[a], clone: copy })
-				parent = copy
-			}
-			// Atomic items (images, inputs, buttons) are moved, not copied, so they keep their listeners.
-			if (seg.atomic) {
-				parent.appendChild(item)
-			} else {
-				// Each word keeps an om-word span in the output, as before, for anyone styling it.
-				const word = document.createElement('span')
-				word.className = OPTICAL_MARGIN_CLASSES.word
-				word.textContent = seg.text
-				parent.appendChild(word)
-			}
+	let prev = ''   // the character before the current position in the flow ('' at the start or after a line break)
+	flow.forEach((f, k) => {
+		if (f.kind === 'break') { prev = ''; return }
+		if (f.kind === 'object') { prev = 'x'; return }
+		const node = f.node
+		const text = node.data
+		if (!text || !node.parentNode) return
+		// Whole words (whitespace-separated tokens): a word that starts with an opening mark or ends with a closing
+		// mark is wrapped whole, so the browser can still hyphenate it.
+		const tokens = text.split(/(\s+)/).filter(Boolean)
+		const pieces: { text: string; start?: string; end?: string }[] = []
+		let changed = false
+		tokens.forEach((token, ti) => {
+			if (/^\s+$/.test(token)) { pieces.push({ text: token }); return }
+			const gs = graphemes(token)
+			const before = ti > 0 ? tokens[ti - 1].slice(-1) : prev
+			const isLast = ti === tokens.length - 1
+			const first = gs[0], last = gs[gs.length - 1]
+			const start = opts.hangStart && HANG_START_CHARS.has(first) && (before === '' || /\s/.test(before)) ? first : undefined
+			const end = opts.hangEnd && HANG_END_CHARS.has(last) && (!isLast || followedByBreak(k + 1)) && !(gs.length === 1 && start) ? last : undefined
+			if (start || end) { pieces.push({ text: token, start, end }); changed = true }
+			else pieces.push({ text: token })
 		})
-
-		fragment.appendChild(lineSpan)
-		prevLineSpan = lineSpan
-
-		if (lineIndex < lineData.length - 1) {
-			// The author's own <br> at this boundary is kept (getCleanHTML returns it); otherwise an
-			// injected, aria-hidden break that getCleanHTML removes.
-			const authorBreak = lineData[lineIndex + 1].lineItems[0].breakBefore
-			if (authorBreak) {
-				fragment.appendChild(authorBreak.cloneNode(false))
-			} else {
-				const br = document.createElement('br')
-				br.dataset.om = '1'
-				br.setAttribute('aria-hidden', 'true')
-				fragment.appendChild(br)
+		prev = text.slice(-1)
+		if (!changed) return
+		const produced: Node[] = []
+		for (const piece of pieces) {
+			if (!piece.start && !piece.end) {
+				const lastNode = produced[produced.length - 1]
+				if (lastNode && lastNode.nodeType === Node.TEXT_NODE) (lastNode as Text).data += piece.text
+				else produced.push(document.createTextNode(piece.text))
+				continue
 			}
+			const span = document.createElement('span')
+			span.className = [piece.start && OPTICAL_MARGIN_CLASSES.start, piece.end && OPTICAL_MARGIN_CLASSES.end].filter(Boolean).join(' ')
+			span.textContent = piece.text
+			produced.push(span)
+			if (piece.start) state.starts.push({ span, char: piece.start })
+			if (piece.end) state.ends.push({ span, char: piece.end })
 		}
+		const fragment = document.createDocumentFragment()
+		produced.forEach((n) => fragment.appendChild(n))
+		node.parentNode.replaceChild(fragment, node)
+		state.wrapped.push({ original: node, produced })
 	})
+	if (!state.wrapped.length) return
+	states.set(element, state)
+	layoutHangs(element, state)
+}
 
-	element.innerHTML = ''
-	element.appendChild(fragment)
+/** Hang in px for a character: advance × its fraction, capped at advance × maxHangRatio. */
+function hangFor(opts: ResolvedOptions, char: string, advance: number): number {
+	const key = Array.from(char)[0] ?? char
+	const fraction = Math.max(0, Math.min(1, opts.hangFractions[key] ?? DEFAULT_HANG_FRACTIONS[key] ?? 1.0))
+	return advance * Math.min(fraction, opts.maxHangRatio)
 }
 
 /**
- * Strips all optical-margin markup and restores the element to the originalHTML snapshot.
+ * Measure and set the hangs: a negative start margin on words whose opening mark starts a line, and a
+ * negative end margin on words whose closing mark ends one — on the edges that are aligned (the start edge
+ * of start-aligned or justified text, the end edge of end-aligned or justified text). Batched in rounds of
+ * all reads then all writes, repeated until no hang changes (at most MAX_LAYOUT_PASSES).
+ */
+function layoutHangs(element: HTMLElement, state: ElementState): void {
+	if (!element.offsetWidth && !element.getBoundingClientRect().width) return
+	const { opts } = state
+	const scrollY = window.scrollY
+	// Clear, so the reads see natural positions.
+	for (const s of state.starts) s.span.style.marginInlineStart = ''
+	for (const e of state.ends) e.span.style.marginInlineEnd = ''
+
+	const cs = getComputedStyle(element)
+	const rtl = cs.direction === 'rtl'
+	const align = cs.textAlign
+	const startAligned = align === 'justify' || align === 'start' || align === '' || (align === 'left' && !rtl) || (align === 'right' && rtl) || align === '-webkit-auto'
+	const endAligned = align === 'justify' || align === 'end' || (align === 'right' && !rtl) || (align === 'left' && rtl)
+
+	const firstRect = (span: HTMLElement) => span.getClientRects?.()[0] ?? span.getBoundingClientRect()
+	const lastRect = (span: HTMLElement) => { const rs = span.getClientRects?.(); return (rs && rs[rs.length - 1]) ?? span.getBoundingClientRect() }
+	const startsLine = (span: HTMLElement): boolean => {
+		const prevR = prevCharRect(span, element)
+		return !prevR || prevR.bottom <= firstRect(span).top + 1
+	}
+	const endsLine = (span: HTMLElement): boolean => {
+		const nextR = nextCharRect(span, element)
+		return !nextR || nextR.top >= lastRect(span).bottom - 1
+	}
+
+	// Hang the marks that start or end a line. A hang gives its line a little more room, which can pull a word
+	// up and change which marks start or end the following lines, so repeat (all reads, then all writes) until
+	// nothing changes: new line starts get a hang, and marks that no longer start or end a line are released.
+	// A mark hung and then released in this layout (its hang let its word fit on the neighbouring line) stays
+	// flush, so it can't flip back and forth.
+	const settled = new Set<HTMLElement>()
+	for (let pass = 0; pass < MAX_LAYOUT_PASSES; pass++) {
+		const startWant = startAligned ? state.starts.map((s) => (!settled.has(s.span) && startsLine(s.span) ? hangFor(opts, s.char, markAdvance(s.span, s.char, false)) : 0)) : []
+		const endWant = endAligned ? state.ends.map((e) => (!settled.has(e.span) && endsLine(e.span) ? hangFor(opts, e.char, markAdvance(e.span, e.char, true)) : 0)) : []
+		let changed = false
+		state.starts.forEach((s, i) => {
+			const want = startWant[i] > opts.threshold ? `${-startWant[i]}px` : ''
+			if (s.span.style.marginInlineStart === want) return
+			if (!want) settled.add(s.span)
+			s.span.style.marginInlineStart = want
+			changed = true
+		})
+		state.ends.forEach((e, i) => {
+			const want = endWant[i] > opts.threshold ? `${-endWant[i]}px` : ''
+			if (e.span.style.marginInlineEnd === want) return
+			if (!want) settled.add(e.span)
+			e.span.style.marginInlineEnd = want
+			changed = true
+		})
+		if (!changed) break
+	}
+
+	requestAnimationFrame(() => {
+		if (Math.abs(window.scrollY - scrollY) > 2) window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
+	})
+}
+
+/**
+ * Removes optical-margin markup: the element's original text nodes are put back (other nodes were never
+ * touched, so listeners and form values are kept). If the element no longer matches `originalHTML`, it is
+ * reset to it.
  *
  * @param element      - Element previously adjusted by applyOpticalMargin
  * @param originalHTML - The snapshot passed to the original applyOpticalMargin call
  */
 export function removeOpticalMargin(element: HTMLElement, originalHTML: string): void {
-	const snap = snapshots.get(element)
-	if (snap && snap.html === originalHTML) restoreSnapshot(snap)
-	else element.innerHTML = originalHTML
-	snapshots.delete(element)
-	originals.delete(element)
+	unwrap(element)
+	if (typeof originalHTML === 'string' && element.innerHTML !== originalHTML && getCleanHTML(element) !== originalHTML) element.innerHTML = originalHTML
 }

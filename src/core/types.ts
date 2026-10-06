@@ -30,8 +30,13 @@ export interface OpticalMarginOptions {
 	hangFractions?: Record<string, number>
 }
 
-/** CSS class names injected by optical-margin — use these to target generated markup */
+/**
+ * CSS class names injected by optical-margin — use these to target generated markup.
+ * - `start` — a word that begins with an opening mark (negative start margin when it starts a line)
+ * - `end`   — a word that ends with a closing mark (negative end margin when it ends a line)
+ * A word can carry both.
+ */
 export const OPTICAL_MARGIN_CLASSES = {
-	word: 'om-word',
-	line: 'om-line',
+	start: 'om-start',
+	end: 'om-end',
 } as const
