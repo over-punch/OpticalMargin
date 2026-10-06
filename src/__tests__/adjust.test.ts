@@ -456,4 +456,53 @@ describe('optical-margin', () => {
 		const last = lines[lines.length - 1]
 		expect(last?.style.marginInlineEnd).toMatch(/^-[\d.]+px$/)
 	})
+
+	// ── Review fixes (2026-10) ───────────────────────────────────────────────
+
+	it('getCleanHTML returns the original markup exactly, including author <br> and whitespace between elements', () => {
+		const html = 'The <em>quick</em> <a href="#x" id="L">fox jumps</a> <strong>over</strong>.<br>Second line.'
+		const el = makeElement(html)
+		applyOpticalMargin(el, html, {})
+		expect(getCleanHTML(el)).toBe(html)
+		expect(el.querySelectorAll('#L').length).toBe(1)
+		expect(el.querySelectorAll('br:not([data-om])').length).toBe(1)
+	})
+
+	it('keeps the original elements, so their event listeners survive a refit', () => {
+		const html = '“Quoted <a href="#">link</a> text.”'
+		const el = makeElement(html)
+		const link = el.querySelector('a')!
+		let clicks = 0
+		link.addEventListener('click', (e) => { e.preventDefault(); clicks++ })
+		applyOpticalMargin(el, html, {})
+		applyOpticalMargin(el, html, {})
+		el.querySelector('a')!.click()
+		expect(el.querySelector('a')).toBe(link)
+		expect(clicks).toBe(1)
+		removeOpticalMargin(el, html)
+		expect(el.querySelector('a')).toBe(link)
+	})
+
+	it('hangs a fraction of the advance width (mock advance 10px, quote fraction 0.8)', () => {
+		const html = '“Hello world'
+		const el = makeElement(html)
+		applyOpticalMargin(el, html, {})
+		const line = el.querySelector<HTMLElement>(`.${OPTICAL_MARGIN_CLASSES.line}`)!
+		expect(line.style.marginInlineStart).toBe('-8px')
+	})
+
+	it('a NaN threshold falls back to the default instead of turning hanging off', () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {})
+		const html = '“Hello world'
+		const el = makeElement(html)
+		applyOpticalMargin(el, html, { threshold: Number.NaN })
+		const line = el.querySelector<HTMLElement>(`.${OPTICAL_MARGIN_CLASSES.line}`)!
+		expect(line.style.marginInlineStart).not.toBe('')
+	})
+
+	it('accepts null options', () => {
+		const html = '“Hello world'
+		const el = makeElement(html)
+		expect(() => applyOpticalMargin(el, html, null)).not.toThrow()
+	})
 })
