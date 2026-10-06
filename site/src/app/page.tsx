@@ -16,10 +16,10 @@ export default function Home() {
 				title={[{ text: "Hang it right." }, { text: "Every font.", italic: true, subtle: true }]}
 				install="@overpunch/opticalmargin"
 				github="https://github.com/over-punch/OpticalMargin"
-				tech={["TypeScript", "Canvas measurement", "Cross-browser"]}
+				tech={["TypeScript", "Font-metric measurement", "Cross-browser"]}
 			>
 				<p className="text-base leading-relaxed max-w-lg">
-					CSS <code className="text-xs font-mono">hanging-punctuation</code> is Safari-only and has no weight control. Optical Margin measures each punctuation character&rsquo;s actual hang amount from Canvas font metrics and applies it as a margin. Works in every browser, with every font.
+					CSS <code className="text-xs font-mono">hanging-punctuation</code> is Safari-only and has no weight control. Optical Margin measures each punctuation character&rsquo;s width in the rendered font and hangs a set fraction of it into the margin. Works in every browser, with every font.
 				</p>
 			</Hero>
 
@@ -41,7 +41,7 @@ export default function Home() {
 					</div>
 					<div className="flex flex-col gap-3">
 						<p className="font-semibold text-base">Font-metric measurement</p>
-						<p>Canvas measureText returns both advance width and visual bounds. The difference is the optical hang amount — how far the character could move into the margin before it would look misaligned. This gives accurate results for every font without a lookup table.</p>
+						<p>Each line&rsquo;s first and last character is measured where it sits on the page, in the rendered font &mdash; size, variation settings and letter-spacing included. A set fraction of that width hangs into the margin: dashes fully, quotes and periods at 80%, commas at 60%. The fractions are adjustable per character.</p>
 					</div>
 				</div>
 			</section>

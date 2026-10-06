@@ -58,7 +58,7 @@ export default async function Image() {
 					<div style={{ fontSize: 14, color: '#c4bdac', letterSpacing: '0.04em', display: 'flex', gap: 20 }}>
 						<span>TypeScript</span>
 						<span style={{ opacity: 0.4 }}>·</span>
-						<span>Canvas measurement</span>
+						<span>Font-metric measurement</span>
 						<span style={{ opacity: 0.4 }}>·</span>
 						<span>Cross-browser</span>
 					</div>

@@ -8,8 +8,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 export const metadata: Metadata = {
 	title: "Optical Margin — Font-metric hanging punctuation, cross-browser",
 	icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
-	description: "Font-metric hanging punctuation for every browser. Measures actual glyph bounds via Canvas and applies hanging margins — not a lookup table. Works with any font.",
-	keywords: ["optical margin", "hanging punctuation", "typography", "TypeScript", "npm", "canvas", "cross browser"],
+	description: "Font-metric hanging punctuation for every browser. Measures each punctuation mark in the rendered font and hangs it into the margin — not a lookup table. Works with any font.",
+	keywords: ["optical margin", "hanging punctuation", "typography", "TypeScript", "npm", "cross browser"],
 	openGraph: {
 		title: "Optical Margin — Font-metric hanging punctuation, cross-browser",
 		description: "Hanging punctuation that actually works — measured from font data, not guessed from lookup tables.",
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 	twitter: {
 		card: "summary_large_image",
 		title: "Optical Margin — hanging punctuation for every browser",
-		description: "Measures real glyph bounds via Canvas and applies optical hanging margins — works with any font, no lookup tables.",
+		description: "Measures each punctuation mark in the rendered font and applies optical hanging margins — works with any font, no lookup tables.",
 		site: "@liiift_studio",
 		creator: "@liiift_studio",
 	},
@@ -35,7 +35,7 @@ const jsonLd = {
 	"name": "Optical Margin",
 	"operatingSystem": "Any (browser-based)",
 	"applicationCategory": "DeveloperApplication",
-	"description": "Font-metric hanging punctuation for every browser. Measures actual glyph bounds via Canvas and applies hanging margins — works with any font.",
+	"description": "Font-metric hanging punctuation for every browser. Measures each punctuation mark in the rendered font and hangs it into the margin — works with any font.",
 	"url": "https://opticalmargin.com",
 	"offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
 }
