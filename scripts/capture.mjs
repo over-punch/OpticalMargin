@@ -1,59 +1,43 @@
 // Reproducible README visual capture for optical-margin.
-// Serves the repo root over HTTP (so /dist/index.js and the font load with a
-// real origin), opens scripts/capture.html in headless Chromium, waits for the
-// effect to apply, and screenshots the #card element at 2x with transparent
-// corners. Output: assets/hero-before-after.png
+// Serves the repo root over HTTP (so /dist/core.js and the font load with a real origin), opens
+// scripts/capture.html in headless Chromium, waits for the effect to apply, and screenshots each scene's
+// card at 2x with transparent corners. Output: assets/<scene>.png
 //
-// Run:  node scripts/capture.mjs
+// Run:  npm run build && npm run capture        (PORT=5968 npm run capture to pick the port)
 // Requires Playwright Chromium:  npx playwright install chromium
+import { join } from "node:path"
+import { serve, loadChromium, PORT, ROOT } from "./harness.mjs"
 
-import { createServer } from "node:http"
-import { readFile } from "node:fs/promises"
-import { extname, join, normalize } from "node:path"
-import { fileURLToPath } from "node:url"
-import { chromium } from "playwright"
+/** One image per scene: the element to screenshot and the file it is written to. */
+const SCENES = [
+	{ selector: "#hero", file: "hero-before-after.png" },
+	{ selector: "#resize", file: "resize-follows-lines.png" },
+]
 
-const ROOT = normalize(join(fileURLToPath(new URL(".", import.meta.url)), ".."))
-const PORT = 4319
-
-// Minimal MIME map for the asset types this page loads
-const MIME = {
-	".html": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8",
-	".mjs": "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-	".woff2": "font/woff2",
-	".woff": "font/woff",
-	".json": "application/json; charset=utf-8",
-}
-
-// Serve files from the repo root. Default route serves the capture page.
-const server = createServer(async (req, res) => {
-	try {
-		let urlPath = decodeURIComponent((req.url || "/").split("?")[0])
-		if (urlPath === "/") urlPath = "/scripts/capture.html"
-		const filePath = normalize(join(ROOT, urlPath))
-		if (!filePath.startsWith(ROOT)) { res.writeHead(403).end(); return }
-		const body = await readFile(filePath)
-		res.writeHead(200, { "content-type": MIME[extname(filePath)] || "application/octet-stream" })
-		res.end(body)
-	} catch {
-		res.writeHead(404).end("not found")
-	}
-})
-
-await new Promise((r) => server.listen(PORT, r))
-
+const server = await serve()
+const chromium = await loadChromium()
 const browser = await chromium.launch()
-const page = await browser.newPage({ deviceScaleFactor: 2 })
-// transparent page background so the rounded card corners are not boxed in white
-await page.goto(`http://localhost:${PORT}/`, { waitUntil: "networkidle" })
-await page.waitForFunction(() => document.documentElement.dataset.ready === "1", { timeout: 10000 })
+const page = await browser.newPage({ deviceScaleFactor: 2, viewport: { width: 1100, height: 900 } })
+await page.goto(`http://localhost:${PORT}/scripts/capture.html`, { waitUntil: "networkidle" })
+await page.waitForFunction(() => document.documentElement.dataset.ready === "1", { timeout: 15000 })
 await page.waitForTimeout(150)
 
-const card = page.locator("#card")
-await card.screenshot({ path: join(ROOT, "assets/hero-before-after.png"), omitBackground: true })
+// SEARCH=1 prints, for a range of hero widths, whether both panels break lines alike and what hangs (used to pick the width in capture.html).
+if (process.env.SEARCH) {
+	for (let width = 640; width <= 860; width += 10) {
+		const r = await page.evaluate((w) => window.build(w), width)
+		console.log(width, r.sameBreaks ? "same breaks" : "DIFFERENT", `${r.lines.length} lines`, "start:", r.hero.start.join(" "), "| end:", r.hero.end.join(" "))
+	}
+} else {
+	const info = await page.evaluate(() => window.build())
+	console.log(`Hero: ${info.lines.length} lines, same line breaks in both panels: ${info.sameBreaks}; hung at line starts: ${info.hero.start.join(" ")}; at line ends: ${info.hero.end.join(" ")}`)
+	info.resize.forEach((r, i) => console.log(`Resize column ${i + 1}: hung at line starts: ${r.start.join(" ")}; at line ends: ${r.end.join(" ")}`))
+	for (const scene of SCENES) {
+		// transparent page background, so the rounded card corners are not boxed in white
+		await page.locator(scene.selector).screenshot({ path: join(ROOT, "assets", scene.file), omitBackground: true })
+		console.log(`Wrote assets/${scene.file}`)
+	}
+}
 
 await browser.close()
 server.close()
-console.log("Wrote assets/hero-before-after.png")

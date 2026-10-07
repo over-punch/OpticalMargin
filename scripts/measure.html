@@ -1,0 +1,219 @@
+<!doctype html>
+<!-- Measurement page for optical-margin: the README's numbers come from here (run by scripts/measure.mjs).
+     Imports the built core bundle (../dist/core.js) and exposes window.measure helpers. Served over HTTP. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>optical-margin measure</title>
+<style>
+	@font-face {
+		font-family: "Merriweather";
+		src: url("/site/public/fonts/Merriweather.woff2") format("woff2");
+		font-weight: 300 700;
+		font-style: normal;
+		font-display: block;
+	}
+	body { margin: 0; padding: 40px 60px; }
+	#stage p { margin: 0 0 40px; font-size: 18px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+	import { applyOpticalMargin, removeOpticalMargin, getCleanHTML } from "/dist/core.js"
+
+	/** Two quote-heavy test paragraphs (the site demo's sample, and a dialogue). */
+	const TEXTS = [
+		`“The best typography,” wrote Jan Tschichold, “is invisible — it disappears into the reading.” That is the paradox of the craft: the more perfectly it is executed, the less it is noticed. Every margin matters. Every spacing decision carries weight. “A quotation mark at the start of a line should hang,” Bringhurst insists, “so that the letter, not the punctuation, holds the optical edge.” The same applies to commas, dashes, periods — any mark smaller than a full letter. Hung correctly, the margin reads as a clean vertical. Left flush, it creates a slight indent that the eye registers as misalignment, even when the reader cannot name what bothers them. “It is a small thing,” one might say — but in typography, every small thing is the thing.`,
+		`“Where does the margin begin?” she asked. “At the letters,” he said, “not at the marks.” (He had said so before.) “And the quotes?” “Outside.” “The brackets?” “[Mostly] outside.” ‘Single ones too,’ she noted, ‘and «guillemets», when we set French.’ “Then a line that opens with a quote,” she went on, “starts a little to the left of one that opens with a letter.” “Yes — by most of the mark’s width.” “And at the other edge?” “The same: periods, commas and hyphens lean out, so the letters hold the line.” “It sounds like a small thing.” “It is,” he said. “That is why nobody does it.”`,
+	]
+
+	/** Words of a paragraph with their boxes, grouped into lines by vertical middle. */
+	function linesOf(p) {
+		const words = []
+		const walk = (n) => n.childNodes.forEach((c) => {
+			if (c.nodeType !== Node.TEXT_NODE) { walk(c); return }
+			const re = /\S+/g
+			let m
+			while ((m = re.exec(c.data))) {
+				const r = document.createRange()
+				r.setStart(c, m.index); r.setEnd(c, m.index + m[0].length)
+				const rs = r.getClientRects()
+				if (!rs.length) continue
+				const first = document.createRange(); first.setStart(c, m.index); first.setEnd(c, m.index + 1)
+				const last = document.createRange(); last.setStart(c, m.index + m[0].length - 1); last.setEnd(c, m.index + m[0].length)
+				const span = c.parentElement.closest(".om-start, .om-end")
+				words.push({
+					word: m[0], mid: (rs[0].top + rs[0].bottom) / 2, left: rs[0].left, right: rs[rs.length - 1].right,
+					firstW: first.getBoundingClientRect().width, lastW: last.getBoundingClientRect().width,
+					isStart: !!span && span.classList.contains("om-start") && span.textContent.startsWith(m[0][0]) && span.firstChild === c && m.index === 0,
+					isEnd: !!span && span.classList.contains("om-end"),
+					ms: span ? span.style.marginInlineStart : "", me: span ? span.style.marginInlineEnd : "", span,
+				})
+			}
+		})
+		walk(p)
+		const lines = []
+		for (const w of words) {
+			const l = lines[lines.length - 1]
+			if (l && Math.abs(l[0].mid - w.mid) < 4) l.push(w); else lines.push([w])
+		}
+		return lines
+	}
+
+	/** Hang fraction the library uses for a mark (its defaults: dashes 1, capped at 0.9; ( [ , ; : 0.6; the rest 0.8). */
+	const fractionOf = (ch) => ("-–—".includes(ch) ? 0.9 : "([,;:".includes(ch) ? 0.6 : 0.8)
+
+	/** For a mark left flush at a line edge: would hanging it (alone) change any line break in the paragraph? */
+	function movesIfHung(p, w, edge) {
+		const key = () => linesOf(p).map((l) => l.length).join(",")
+		const before = key()
+		const prop = edge === "start" ? "marginInlineStart" : "marginInlineEnd"
+		const ch = edge === "start" ? w.word[0] : w.word[w.word.length - 1]
+		w.span.style[prop] = `${-(edge === "start" ? w.firstW : w.lastW) * fractionOf(ch)}px`
+		const moved = key() !== before
+		w.span.style[prop] = ""
+		return moved
+	}
+
+	/** Lays out both texts in one font at one width, applies the effect, and reports every line that starts or ends with a hangable mark. */
+	function sweep(fontFamily, width, align = "justify") {
+		const stage = document.getElementById("stage")
+		stage.innerHTML = ""
+		const out = { starts: [], ends: [], lines: 0, overflow: 0, stray: 0 }
+		for (const text of TEXTS) {
+			const p = document.createElement("p")
+			p.style.cssText = `font-family:${fontFamily};width:${width}px;text-align:${align}`
+			p.textContent = text
+			stage.appendChild(p)
+			const before = linesOf(p).length
+			applyOpticalMargin(p, getCleanHTML(p), {})
+			const box = p.getBoundingClientRect()
+			const lines = linesOf(p)
+			out.lines += lines.length
+			out.lineCountChanged = (out.lineCountChanged || 0) + (lines.length !== before ? 1 : 0)
+			lines.forEach((line, i) => {
+				const f = line[0], l = line[line.length - 1]
+				if (f.isStart) out.starts.push({ word: f.word, ratio: (box.left - f.left) / f.firstW, hung: !!f.ms, movesIfHung: f.ms ? null : movesIfHung(p, f, "start") })
+				// The last line of a justified paragraph is not justified, so its end is not an aligned edge.
+				if (l.isEnd && i < lines.length - 1) out.ends.push({ word: l.word, ratio: (l.right - box.right) / l.lastW, hung: !!l.me, movesIfHung: l.me ? null : movesIfHung(p, l, "end") })
+				// A hang on a word that is not at its edge would pull that word over its neighbour.
+				line.forEach((w, k) => { if ((w.ms && k > 0) || (w.me && k < line.length - 1)) out.stray++ })
+				// A letter (not a hung mark) past either edge would be an overflow.
+				if (!f.ms && f.left < box.left - 0.5) out.overflow++
+				if (!l.me && l.right > box.right + 0.5) out.overflow++
+			})
+		}
+		return out
+	}
+
+	/** Behaviour checks behind the README's claims: each returns plain data for measure.mjs to print. */
+	function checks() {
+		const stage = document.getElementById("stage")
+		const make = (html, css) => { stage.innerHTML = ""; const p = document.createElement("p"); p.style.cssText = css; p.innerHTML = html; stage.appendChild(p); return p }
+		const selText = (p) => { const s = getSelection(); s.removeAllRanges(); const r = document.createRange(); r.selectNodeContents(p); s.addRange(r); const t = s.toString(); s.removeAllRanges(); return t }
+		const res = {}
+
+		// Copy-paste: the selected text is the same before and after.
+		let p = make(TEXTS[0], "font-family:Merriweather;width:360px;text-align:justify")
+		const html0 = p.innerHTML, sel0 = selText(p)
+		applyOpticalMargin(p, html0, {})
+		res.copyTextSame = selText(p) === sel0
+		res.textContentSame = p.textContent === TEXTS[0]
+		res.spans = { start: p.querySelectorAll(".om-start").length, end: p.querySelectorAll(".om-end").length, other: p.querySelectorAll("*:not(.om-start):not(.om-end)").length, br: p.querySelectorAll("br").length }
+		res.getCleanHTMLSame = getCleanHTML(p) === html0
+		removeOpticalMargin(p, html0)
+		res.removeRestores = p.innerHTML === html0
+
+		// Hyphenation: hyphens:auto still breaks words (lines that end mid-word) after the effect.
+		const midWordBreaks = (el) => { const ls = linesOf(el); return ls.length }
+		p = make(TEXTS[0], "font-family:Merriweather;width:240px;text-align:justify;hyphens:auto")
+		const hyBefore = p.getBoundingClientRect().height
+		const noHy = make(TEXTS[0], "font-family:Merriweather;width:240px;text-align:justify;hyphens:manual").getBoundingClientRect().height
+		p = make(TEXTS[0], "font-family:Merriweather;width:240px;text-align:justify;hyphens:auto")
+		applyOpticalMargin(p, getCleanHTML(p), {})
+		res.hyphens = { heightManual: noHy, heightAutoBefore: hyBefore, heightAutoAfter: p.getBoundingClientRect().height, lines: midWordBreaks(p) }
+
+		// Soft hyphen: a word with &shy; inside a hangable word still breaks at the soft hyphen.
+		p = make(`Set it so: “extra&shy;ordinarily” long words break.`, "font-family:Merriweather;width:150px")
+		applyOpticalMargin(p, getCleanHTML(p), {})
+		const shy = p.querySelector(".om-start")
+		res.softHyphen = { word: shy ? shy.textContent.replace(/­/g, "|") : null, rects: shy ? shy.getClientRects().length : 0 }
+
+		// A link that wraps stays one <a>.
+		p = make(`He wrote <a href="#x">“a long linked phrase that wraps over more than one line,”</a> and stopped.`, "font-family:Merriweather;width:220px;text-align:justify")
+		const a0 = p.querySelector("a")
+		applyOpticalMargin(p, getCleanHTML(p), {})
+		res.link = { count: p.querySelectorAll("a").length, sameNode: p.querySelector("a") === a0, rects: p.querySelector("a").getClientRects().length }
+
+		// RTL: the opening mark hangs past the right (start) edge.
+		p = make(`“שלום עולם,” אמר. וזה הכול כאן בשורה ארוכה שנשברת לכמה שורות של טקסט.`, "font-family:'Times New Roman';width:260px;direction:rtl;text-align:justify")
+		applyOpticalMargin(p, getCleanHTML(p), {})
+		const rs = p.querySelector(".om-start")
+		res.rtl = rs ? { marginInlineStart: rs.style.marginInlineStart, pastRightEdgePx: +(rs.getBoundingClientRect().right - p.getBoundingClientRect().right).toFixed(2) } : null
+
+		// CJK and Thai (no spaces between words): the line breaks are the same with and without the effect.
+		res.unspaced = {}
+		for (const [name, text] of [["cjk", "「活字」は、言葉に形を与える技術である。“良い組版”は読者に気づかれない、と彼は書いた。余白のひとつひとつに意味がある。"], ["thai", "“การจัดตัวอักษรที่ดี” คือการจัดที่ผู้อ่านมองไม่เห็น เขาเขียนไว้ว่าทุกช่องว่างมีความหมายและทุกบรรทัดมีน้ำหนักของมันเอง"]]) {
+			p = make(text, "font-family:system-ui;width:230px;text-align:justify")
+			const before = p.getBoundingClientRect().height
+			applyOpticalMargin(p, getCleanHTML(p), {})
+			res.unspaced[name] = { heightBefore: before, heightAfter: p.getBoundingClientRect().height, lines: Math.round(before / parseFloat(getComputedStyle(p).lineHeight)) }
+		}
+
+		// Alignment gating: counts of hung marks at each text-align.
+		res.align = {}
+		for (const align of ["left", "right", "justify", "center"]) {
+			p = make(TEXTS[0], `font-family:Merriweather;width:360px;text-align:${align}`)
+			applyOpticalMargin(p, getCleanHTML(p), {})
+			res.align[align] = { start: [...p.querySelectorAll(".om-start")].filter((s) => s.style.marginInlineStart).length, end: [...p.querySelectorAll(".om-end")].filter((s) => s.style.marginInlineEnd).length }
+		}
+
+		// Resize: narrowing the column and applying again moves the hangs to the new line starts; a second apply changes nothing.
+		p = make(TEXTS[1], "font-family:Merriweather;width:520px;text-align:justify")
+		const snap = getCleanHTML(p)
+		applyOpticalMargin(p, snap, {})
+		const hungWords = () => [...p.querySelectorAll(".om-start")].filter((s) => s.style.marginInlineStart).map((s) => s.textContent).join(" ")
+		const at520 = hungWords()
+		p.style.width = "380px"
+		applyOpticalMargin(p, snap, {})
+		const at380 = hungWords()
+		const lineStarts = linesOf(p).filter((l) => l[0].isStart).map((l) => l[0].word).join(" ")
+		applyOpticalMargin(p, snap, {})
+		res.resize = { at520, at380, lineStartsAt380: lineStarts, stableOnReapply: hungWords() === at380 }
+
+		// Hidden element: nothing is measured, nothing hangs.
+		p = make(TEXTS[0], "font-family:Merriweather;width:360px;text-align:justify;display:none")
+		applyOpticalMargin(p, getCleanHTML(p), {})
+		res.hidden = { hung: [...p.querySelectorAll(".om-start,.om-end")].filter((s) => s.style.marginInlineStart || s.style.marginInlineEnd).length }
+		return res
+	}
+
+	/** Time for the first apply and for a re-apply on a paragraph, in ms (median of n runs). */
+	function timing(n = 15, repeat = 1) {
+		const stage = document.getElementById("stage")
+		const first = [], again = []
+		const text = Array(repeat).fill(TEXTS[0]).join(" ")
+		for (let i = 0; i < n; i++) {
+			stage.innerHTML = ""
+			const p = document.createElement("p")
+			p.style.cssText = "font-family:Merriweather;width:520px;text-align:justify"
+			p.textContent = text
+			stage.appendChild(p)
+			const snap = getCleanHTML(p)
+			p.getBoundingClientRect()
+			let t = performance.now(); applyOpticalMargin(p, snap, {}); p.getBoundingClientRect(); first.push(performance.now() - t)
+			t = performance.now(); applyOpticalMargin(p, snap, {}); p.getBoundingClientRect(); again.push(performance.now() - t)
+		}
+		const median = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)]
+		const lines = linesOf(stage.querySelector("p")).length
+		return { chars: text.length, lines, firstMs: +median(first).toFixed(1), againMs: +median(again).toFixed(1) }
+	}
+
+	await document.fonts.load('18px "Merriweather"')
+	await document.fonts.ready
+	window.measure = { sweep, checks, timing }
+	document.documentElement.dataset.ready = "1"
+</script>
+</body>
+</html>

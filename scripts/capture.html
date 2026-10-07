@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- Reproducible capture page for optical-margin README visuals.
-     Imports the real built bundle from ../dist/index.js and renders a
-     before (flush) / after (hung) comparison. Served over HTTP by capture.mjs. -->
+     Imports the real built core bundle (../dist/core.js) and renders two cards: #hero, a before (flush) /
+     after (hung) comparison of one justified paragraph, and #resize, the same paragraph at three column
+     widths. Guide lines mark the column edges; marks that hang are tinted. Served over HTTP by capture.mjs. -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -16,12 +17,14 @@
 		font-display: block;
 	}
 	:root {
-		/* opticalMargin golden-angle theme (matches the live site) */
-		--bg: oklch(0.13 0.045 196);
-		--fg: oklch(0.94 0.02 196);
-		--accent: oklch(0.80 0.12 196);
-		--rule: oklch(0.94 0.02 196 / 0.18);
+		/* opticalMargin theme (the site's globals.css colours, hue 90) */
+		--bg: oklch(0.200 0.1000 90);
+		--panel: oklch(0.270 0.0300 90);
+		--fg: oklch(0.970 0.0080 90);
+		--muted: oklch(0.800 0.0250 90);
+		--rule: oklch(0.970 0.0080 90 / 0.16);
 		--guide: oklch(0.80 0.13 30 / 0.9);
+		--hung: oklch(0.86 0.15 30);
 	}
 	* { box-sizing: border-box; }
 	html, body { margin: 0; padding: 0; background: transparent; }
@@ -29,117 +32,159 @@
 		font-family: "Merriweather", Georgia, serif;
 		color: var(--fg);
 		-webkit-font-smoothing: antialiased;
-		text-rendering: optimizeLegibility;
-	}
-
-	/* ─── Hero: stacked before / after with a margin guide line ─────────── */
-	.card {
-		width: 920px;
-		background: var(--bg);
-		border-radius: 18px;
-		padding: 44px 48px 40px;
+		padding: 20px;
 		display: flex;
 		flex-direction: column;
-		gap: 34px;
+		gap: 40px;
+		align-items: flex-start;
 	}
-	.panel { position: relative; }
-	.panel .label {
+	/* Marks that hang are tinted with the CSS Highlight API, so the text nodes are left as the library made them. */
+	::highlight(hung) { color: var(--hung); }
+
+	.card {
+		background: var(--bg);
+		border-radius: 18px;
+		padding: 40px 56px 36px;
+		display: flex;
+		flex-direction: column;
+		gap: 30px;
+	}
+	.label {
 		font-family: ui-sans-serif, system-ui, sans-serif;
 		font-size: 12px;
 		font-weight: 600;
 		letter-spacing: 0.18em;
 		text-transform: uppercase;
-		color: var(--accent);
-		margin: 0 0 14px;
+		color: var(--muted);
+		margin: 0 0 16px;
 		display: flex;
 		align-items: center;
 		gap: 10px;
 	}
-	.panel .label::after {
-		content: "";
-		flex: 1;
-		height: 1px;
-		background: var(--rule);
-	}
+	.label::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
 	.prose {
-		font-size: 24px;
-		line-height: 1.62;
 		font-weight: 300;
-		font-variation-settings: "wght" 300, "opsz" 24;
+		font-variation-settings: "wght" 300;
 		margin: 0;
-		/* hard left edge so the optical misalignment of flush punctuation is obvious */
-		padding-left: 0;
+		text-align: justify;
 	}
-	/* a faint vertical guide showing the intended margin edge */
-	.guide-wrap { position: relative; padding-left: 18px; }
-	.guide-wrap::before {
+	/* The column: guide lines sit exactly on its two edges */
+	.column { position: relative; }
+	.column::before, .column::after {
 		content: "";
 		position: absolute;
-		left: 0; top: 2px; bottom: 2px;
-		width: 2px;
+		top: -6px; bottom: -6px;
+		width: 1px;
 		background: var(--guide);
-		border-radius: 2px;
 	}
-	.divider { height: 1px; background: var(--rule); }
+	.column::before { left: 0; }
+	.column::after { right: 0; }
 	.foot {
 		font-family: ui-sans-serif, system-ui, sans-serif;
 		font-size: 13px;
-		color: var(--fg);
-		opacity: 0.6;
+		color: var(--muted);
 		margin: 0;
 		letter-spacing: 0.01em;
 	}
-	.foot b { color: var(--accent); font-weight: 600; opacity: 1; }
+	.foot b { color: var(--hung); font-weight: 600; }
+
+	#hero .prose { font-size: 23px; line-height: 1.62; }
+	#hero .column { width: var(--hero-width, 670px); }
+
+	#resize .row { display: flex; gap: 64px; align-items: flex-start; }
+	#resize .prose { font-size: 16px; line-height: 1.6; }
 </style>
 </head>
 <body>
-<div class="card" id="card">
-	<div class="panel">
+<div class="card" id="hero">
+	<div>
 		<p class="label">Without optical margin</p>
-		<div class="guide-wrap">
-			<p class="prose" id="before"></p>
-		</div>
+		<div class="column"><p class="prose" id="before"></p></div>
 	</div>
-	<div class="divider"></div>
-	<div class="panel">
+	<div>
 		<p class="label">With optical margin</p>
-		<div class="guide-wrap">
-			<p class="prose" id="after"></p>
-		</div>
+		<div class="column"><p class="prose" id="after"></p></div>
 	</div>
-	<p class="foot">Quotes, dashes and commas hang past the edge so the <b>letters</b> hold the optical margin &mdash; measured from real font metrics, not a lookup table.</p>
+	<p class="foot">The red lines are the column edges. <b>Tinted marks</b> hang past them, so the letters hold the edge.</p>
 </div>
 
-<!-- The built bundle imports "react" at module top-level (for the optional hook/component).
-     We only use the framework-agnostic core here, so map react/react-dom to an empty stub. -->
-<script type="importmap">
-{
-	"imports": {
-		"react": "/scripts/react-stub.js",
-		"react-dom": "/scripts/react-stub.js",
-		"react/jsx-runtime": "/scripts/react-stub.js"
-	}
-}
-</script>
+<div class="card" id="resize">
+	<div class="row" id="resize-row"></div>
+	<p class="foot">One paragraph at three column widths. As the lines re-break, the hangs move to the <b>marks</b> that now start or end a line.</p>
+</div>
+
 <script type="module">
-	import { applyOpticalMargin, getCleanHTML } from "/dist/index.js"
+	import { applyOpticalMargin, getCleanHTML } from "/dist/core.js"
 
-	const SAMPLE = `“The best typography is invisible,” Tschichold wrote. “It disappears into the reading.” Quotes, commas, and dashes — every mark smaller than a letter — should hang past the edge.`
+	const SAMPLE = `“The best typography is invisible,” Tschichold wrote. “It disappears into the reading.” Quotes, commas, and dashes — every mark smaller than a letter — should hang past the edge. “Set flush,” the old compositors said, “a quotation mark leaves a dent in the margin.” Hung, it leaves the letters to draw the line.`
 
-	const before = document.getElementById("before")
-	const after = document.getElementById("after")
-	before.textContent = SAMPLE
-	after.textContent = SAMPLE
+	/** Column widths of the resize strip, in px. */
+	const RESIZE_WIDTHS = [300, 250, 200]
 
-	async function go() {
-		await document.fonts.ready
-		// small settle so layout + metrics are final
-		await new Promise(r => setTimeout(r, 120))
-		const original = getCleanHTML(after)
-		applyOpticalMargin(after, original, { hangStart: true, hangEnd: true })
-		document.documentElement.dataset.ready = "1"
+	/** Tints the marks the library hung (the first character of a hung start span, the last of a hung end span). */
+	function tintHung(roots) {
+		const ranges = []
+		for (const root of roots) {
+			for (const span of root.querySelectorAll(".om-start, .om-end")) {
+				const text = span.firstChild
+				if (!text) continue
+				if (span.style.marginInlineStart) { const r = new Range(); r.setStart(text, 0); r.setEnd(text, 1); ranges.push(r) }
+				// An end hang on the paragraph's last line moves nothing (that line isn't justified), so it isn't tinted.
+				const rects = span.getClientRects()
+				const pastEdge = rects[rects.length - 1].right > root.getBoundingClientRect().right + 0.5
+				if (span.style.marginInlineEnd && pastEdge) { const r = new Range(); r.setStart(text, text.length - 1); r.setEnd(text, text.length); ranges.push(r) }
+			}
+		}
+		CSS.highlights.set("hung", new Highlight(...ranges))
 	}
-	go()
+
+	/** The first and last word of each line of a paragraph (to compare line breaks between panels). */
+	function lineEdges(p) {
+		const words = []
+		const walk = (n) => n.childNodes.forEach((c) => {
+			if (c.nodeType !== Node.TEXT_NODE) { walk(c); return }
+			const re = /\S+/g
+			let m
+			while ((m = re.exec(c.data))) { const r = new Range(); r.setStart(c, m.index); r.setEnd(c, m.index + m[0].length); const b = r.getClientRects()[0]; words.push({ word: m[0], mid: (b.top + b.bottom) / 2 }) }
+		})
+		walk(p)
+		const lines = []
+		for (const w of words) { const l = lines[lines.length - 1]; if (l && Math.abs(l[0].mid - w.mid) < 4) l.push(w); else lines.push([w]) }
+		return lines.map((l) => `${l[0].word} … ${l[l.length - 1].word}`)
+	}
+
+	/** Builds both cards. `heroWidth` overrides the hero column width (used to search for a good width). */
+	window.build = function build(heroWidth) {
+		if (heroWidth) document.documentElement.style.setProperty("--hero-width", `${heroWidth}px`)
+		const before = document.getElementById("before")
+		const after = document.getElementById("after")
+		before.textContent = SAMPLE
+		after.textContent = SAMPLE
+		applyOpticalMargin(after, getCleanHTML(after), {})
+
+		const row = document.getElementById("resize-row")
+		row.innerHTML = ""
+		const resized = RESIZE_WIDTHS.map((width) => {
+			const column = document.createElement("div")
+			column.className = "column"
+			column.style.width = `${width}px`
+			const p = document.createElement("p")
+			p.className = "prose"
+			p.textContent = SAMPLE
+			column.appendChild(p)
+			row.appendChild(column)
+			applyOpticalMargin(p, getCleanHTML(p), {})
+			return p
+		})
+		tintHung([after, ...resized])
+		const hungIn = (p) => ({ start: [...p.querySelectorAll(".om-start")].filter((s) => s.style.marginInlineStart).map((s) => s.textContent), end: [...p.querySelectorAll(".om-end")].filter((s) => s.style.marginInlineEnd).map((s) => s.textContent) })
+		return { sameBreaks: lineEdges(before).join("|") === lineEdges(after).join("|"), lines: lineEdges(after), hero: hungIn(after), resize: resized.map(hungIn) }
+	}
+
+	await document.fonts.load('300 23px "Merriweather"')
+	await document.fonts.ready
+	window.build()
+	document.documentElement.dataset.ready = "1"
 </script>
 </body>
 </html>

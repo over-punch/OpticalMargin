@@ -28,7 +28,8 @@
 		"test:run": "vitest run",
 		"capture": "node scripts/capture.mjs",
 		"lint": "tsc --noEmit",
-		"prepublishOnly": "npm run test:run && npm run build && npm run build:webflow"
+		"prepublishOnly": "npm run test:run && npm run build && npm run build:webflow",
+		"measure": "node scripts/measure.mjs"
 	},
 	"peerDependencies": {
 		"react": ">=17",
