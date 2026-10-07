@@ -238,3 +238,121 @@ describe('optical-margin 2.0', () => {
 		}
 	})
 })
+
+// ─── Reflowing mock layout ────────────────────────────────────────────────────
+// The mocks above pin every word to a line. These tests need hangs to move line breaks, so they use a small
+// greedy line breaker: every character and every space is 10px wide, a word's width is reduced by its span's
+// negative margins, and a word that doesn't fit starts the next line (20px lower). Text is plain words only.
+
+/** One laid-out word: the text node it is in, its character range there, and its line. */
+interface MockWord { node: Text; from: number; to: number; line: number }
+
+/** Lays the element's words out greedily in a column `width` px wide. */
+function mockLayout(el: HTMLElement, width: number): MockWord[] {
+	const words: MockWord[] = []
+	const walk = (node: Node) => node.childNodes.forEach((child) => {
+		if (child.nodeType !== Node.TEXT_NODE) { walk(child); return }
+		const re = /\S+/g
+		let m: RegExpExecArray | null
+		while ((m = re.exec((child as Text).data))) words.push({ node: child as Text, from: m.index, to: m.index + m[0].length, line: 0 })
+	})
+	walk(el)
+	let x = 0, line = 0
+	for (const w of words) {
+		const span = w.node.parentElement && w.node.parentElement !== el ? w.node.parentElement : null
+		const margins = span ? (parseFloat(span.style.marginInlineStart) || 0) + (parseFloat(span.style.marginInlineEnd) || 0) : 0
+		const wordWidth = ADVANCE * (w.to - w.from) + margins
+		if (x > 0 && x + ADVANCE + wordWidth > width) { line++; x = 0 }
+		x += (x > 0 ? ADVANCE : 0) + wordWidth
+		w.line = line
+	}
+	return words
+}
+
+describe('optical-margin 2.0: hangs that move line breaks', () => {
+	/** Column width of the mock layout, set by each test before it applies. */
+	let columnWidth = 0
+	/** The paragraph under test. */
+	let para: HTMLElement
+
+	/** The mock line of the word at a character position. */
+	const lineAt = (node: Node, offset: number): number => {
+		const words = mockLayout(para, columnWidth)
+		const word = words.find((w) => w.node === node && offset >= w.from && offset < w.to) ?? words.find((w) => w.node === node)
+		return word ? word.line : 0
+	}
+	/** The mock line of a span's word. */
+	const lineOf = (span: Element): number => (span.firstChild ? lineAt(span.firstChild, 0) : 0)
+	/** The words that start each mock line. */
+	const lineStarts = (): string[] => {
+		const words = mockLayout(para, columnWidth)
+		return words.filter((w, i) => i === 0 || words[i - 1].line !== w.line).map((w) => w.node.data.slice(w.from, w.to))
+	}
+
+	beforeEach(() => {
+		document.body.innerHTML = ''
+		_resetCanvasForTesting()
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			const injected = [OPTICAL_MARGIN_CLASSES.start, OPTICAL_MARGIN_CLASSES.end].some((c) => this.classList?.contains(c))
+			return injected ? rect(lineOf(this) * 20, ADVANCE * (this.textContent ?? '').length) : rect(0, columnWidth)
+		})
+		vi.spyOn(Element.prototype, 'getClientRects').mockImplementation(function (this: Element) {
+			return [this.getBoundingClientRect()] as unknown as DOMRectList
+		})
+		vi.spyOn(Range.prototype, 'getClientRects').mockImplementation(function (this: Range) {
+			return [rect(lineAt(this.startContainer, this.startOffset) * 20, ADVANCE)] as unknown as DOMRectList
+		})
+		vi.spyOn(Range.prototype, 'getBoundingClientRect').mockImplementation(function (this: Range) {
+			return rect(lineAt(this.startContainer, this.startOffset) * 20, ADVANCE)
+		})
+	})
+
+	afterEach(() => { vi.restoreAllMocks() })
+
+	/** Makes the paragraph, applies the effect at a column width, and returns its start spans by word. */
+	function applyAt(text: string, width: number): Record<string, HTMLElement> {
+		columnWidth = width
+		para = makeElement(text)
+		applyOpticalMargin(para, getCleanHTML(para), {})
+		return Object.fromEntries(spans(para, OPTICAL_MARGIN_CLASSES.start).map((s) => [s.textContent ?? '', s]))
+	}
+
+	// Regression (2.0.0): a mark that was hung and then found off its edge was left flush for good, whatever
+	// the reason. Here “bbb starts line 2 and “ddd starts line 3. Hanging “bbb (8px) lets it fit at the end
+	// of line 1, which pulls “ddd up into line 2; the first check found both off their edge and gave up on
+	// both. With “bbb back flush, “ddd starts line 3 again and its hang moves nothing, so it must hang.
+	it('a mark moved off its edge by another mark’s hang still hangs once the layout settles', () => {
+		const s = applyAt('aaaaaaa aaaaaaaa “bbb cccccc cccccc “ddd eee', 205)
+		expect(lineStarts()).toEqual(['aaaaaaa', '“bbb', '“ddd'])
+		expect(s['“bbb'].style.marginInlineStart).toBe('')        // its own hang would move it to line 1
+		expect(s['“ddd'].style.marginInlineStart).toBe('-8px')    // stable: it starts line 3 either way
+	})
+
+	it('a mark whose own hang would move its word to the line above is left flush', () => {
+		const s = applyAt('aaaaaaa aaaaaaaa “bbb cccccc cccccc', 205)
+		expect(lineStarts()).toEqual(['aaaaaaa', '“bbb'])
+		expect(s['“bbb'].style.marginInlineStart).toBe('')
+	})
+
+	it('at every width, each line-start mark hangs unless its own hang would move it, and no hang is left mid-line', () => {
+		const text = '“aa bbbb cc “dddd ee fff “gg hhhhh ii “jjj kk lllll “mm nnn oooo “pp qq rrrrr “ss ttt uu “vvvv ww xxx “yy zzzz'
+		for (let width = 95; width <= 405; width += 10) {
+			document.body.innerHTML = ''
+			applyAt(text, width)
+			const words = mockLayout(para, width)
+			for (const span of spans(para, OPTICAL_MARGIN_CLASSES.start)) {
+				const i = words.findIndex((w) => w.node === span.firstChild)
+				const startsLine = i === 0 || words[i - 1].line !== words[i].line
+				const hung = span.style.marginInlineStart !== ''
+				if (!startsLine) { expect(hung, `${span.textContent} at ${width}px is mid-line`).toBe(false); continue }
+				if (hung) continue
+				// Flush at a line start: hanging it by hand must move it off the line start.
+				span.style.marginInlineStart = '-8px'
+				const after = mockLayout(para, width)
+				const stillStarts = i === 0 || after[i - 1].line !== after[i].line
+				span.style.marginInlineStart = ''
+				expect(stillStarts, `${span.textContent} at ${width}px could have hung`).toBe(false)
+			}
+		}
+	})
+})

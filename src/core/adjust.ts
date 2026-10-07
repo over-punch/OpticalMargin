@@ -118,14 +118,27 @@ function canvasAdvance(char: string, cs: CSSStyleDeclaration | null, ctx: Canvas
 	return advance
 }
 
-/** How many read/write rounds layoutHangs may take to settle (a hang can move later line breaks). */
-const MAX_LAYOUT_PASSES = 4
+/**
+ * How many marks layoutHangs may have to try on their own before it stops deciding them one at a time (a hang
+ * can move later line breaks). Marks still undecided then are hung in one batch and any that end up off their
+ * edge are released.
+ */
+const MAX_LAYOUT_RETRIES = 64
+
+/** How many marks layoutHangs hangs and checks at a time, so a long text costs a few reads per round, not all of them. */
+const LAYOUT_WINDOW = 24
+
+/** How many release-only passes the final check may take (each one only removes hangs, so it always ends). */
+const MAX_RELEASE_PASSES = 8
 
 /** Elements whose text is never touched: scripts, styles, form fields, templates. */
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'TEMPLATE', 'NOSCRIPT', 'SELECT', 'OPTION'])
 
 /** One original text node and the nodes that replaced it, so remove() can put the original back. */
 interface Wrapped { original: Text; produced: Node[] }
+
+/** One hangable mark: the word span that carries it, the character, and the edge it hangs at. */
+interface Mark { span: HTMLElement; char: string; edge: 'start' | 'end' }
 
 /** What a run changed on an element. */
 interface ElementState {
@@ -136,6 +149,8 @@ interface ElementState {
 	starts: { span: HTMLElement; char: string }[]
 	/** Words that end with a closing mark. */
 	ends: { span: HTMLElement; char: string }[]
+	/** Every mark in document order (a word with both has its start mark first); layoutHangs decides them in this order. */
+	marks: Mark[]
 	opts: ResolvedOptions
 }
 
@@ -348,7 +363,7 @@ export function applyOpticalMargin(
 
 	// --- Wrap: marks that can start or end a line, in place ---
 	const flow = collectFlow(element)
-	const state: ElementState = { originalHTML, optionsKey, wrapped: [], starts: [], ends: [], opts }
+	const state: ElementState = { originalHTML, optionsKey, wrapped: [], starts: [], ends: [], marks: [], opts }
 	/** Whether the flow after item k (at its start) begins with whitespace, a line break or nothing. */
 	const followedByBreak = (k: number): boolean => {
 		for (let j = k; j < flow.length; j++) {
@@ -398,8 +413,8 @@ export function applyOpticalMargin(
 			span.className = [piece.start && OPTICAL_MARGIN_CLASSES.start, piece.end && OPTICAL_MARGIN_CLASSES.end].filter(Boolean).join(' ')
 			span.textContent = piece.text
 			produced.push(span)
-			if (piece.start) state.starts.push({ span, char: piece.start })
-			if (piece.end) state.ends.push({ span, char: piece.end })
+			if (piece.start) { state.starts.push({ span, char: piece.start }); state.marks.push({ span, char: piece.start, edge: 'start' }) }
+			if (piece.end) { state.ends.push({ span, char: piece.end }); state.marks.push({ span, char: piece.end, edge: 'end' }) }
 		}
 		const fragment = document.createDocumentFragment()
 		produced.forEach((n) => fragment.appendChild(n))
@@ -421,8 +436,15 @@ function hangFor(opts: ResolvedOptions, char: string, advance: number): number {
 /**
  * Measure and set the hangs: a negative start margin on words whose opening mark starts a line, and a
  * negative end margin on words whose closing mark ends one — on the edges that are aligned (the start edge
- * of start-aligned or justified text, the end edge of end-aligned or justified text). Batched in rounds of
- * all reads then all writes, repeated until no hang changes (at most MAX_LAYOUT_PASSES).
+ * of start-aligned or justified text, the end edge of end-aligned or justified text).
+ *
+ * A hang gives its line a little more room, which can pull a word up and change the line breaks after it,
+ * so the marks are decided in document order (a hang never changes the lines before its own). Each round
+ * hangs the next few undecided marks that are at their edge (all reads, then all writes) and checks the
+ * result. If the layout agrees, they are final. Otherwise everything before the first mark that disagrees is final; that mark
+ * is tried on its own, and it is left flush only if its own hang takes it off its edge (its word fits on
+ * the neighbouring line), so it can't flip back and forth. Marks that were merely moved by an earlier hang
+ * are looked at again in the next round.
  */
 function layoutHangs(element: HTMLElement, state: ElementState): void {
 	if (!element.offsetWidth && !element.getBoundingClientRect().width) return
@@ -449,31 +471,58 @@ function layoutHangs(element: HTMLElement, state: ElementState): void {
 		return !nextR || nextR.top >= lastRect(span).bottom - 1
 	}
 
-	// Hang the marks that start or end a line. A hang gives its line a little more room, which can pull a word
-	// up and change which marks start or end the following lines, so repeat (all reads, then all writes) until
-	// nothing changes: new line starts get a hang, and marks that no longer start or end a line are released.
-	// A mark hung and then released in this layout (its hang let its word fit on the neighbouring line) stays
-	// flush, so it can't flip back and forth.
-	const settled = new Set<HTMLElement>()
-	for (let pass = 0; pass < MAX_LAYOUT_PASSES; pass++) {
-		const startWant = startAligned ? state.starts.map((s) => (!settled.has(s.span) && startsLine(s.span) ? hangFor(opts, s.char, markAdvance(s.span, s.char, false)) : 0)) : []
-		const endWant = endAligned ? state.ends.map((e) => (!settled.has(e.span) && endsLine(e.span) ? hangFor(opts, e.char, markAdvance(e.span, e.char, true)) : 0)) : []
-		let changed = false
-		state.starts.forEach((s, i) => {
-			const want = startWant[i] > opts.threshold ? `${-startWant[i]}px` : ''
-			if (s.span.style.marginInlineStart === want) return
-			if (!want) settled.add(s.span)
-			s.span.style.marginInlineStart = want
-			changed = true
-		})
-		state.ends.forEach((e, i) => {
-			const want = endWant[i] > opts.threshold ? `${-endWant[i]}px` : ''
-			if (e.span.style.marginInlineEnd === want) return
-			if (!want) settled.add(e.span)
-			e.span.style.marginInlineEnd = want
-			changed = true
-		})
-		if (!changed) break
+	// The marks on aligned edges, in document order.
+	const marks = state.marks.filter((m) => (m.edge === 'start' ? startAligned : endAligned))
+	/** Whether the mark starts (or ends) a line in the current layout. */
+	const atEdge = (m: Mark): boolean => (m.edge === 'start' ? startsLine(m.span) : endsLine(m.span))
+	/** The margin that hangs the mark ('' when the hang is under the threshold). */
+	const hangOf = (m: Mark): string => {
+		const hang = hangFor(opts, m.char, markAdvance(m.span, m.char, m.edge === 'end'))
+		return hang > opts.threshold ? `${-hang}px` : ''
+	}
+	const getHang = (m: Mark): string => (m.edge === 'start' ? m.span.style.marginInlineStart : m.span.style.marginInlineEnd)
+	const setHang = (m: Mark, value: string): void => {
+		if (m.edge === 'start') m.span.style.marginInlineStart = value
+		else m.span.style.marginInlineEnd = value
+	}
+	/** The margin the mark should have in the current layout. */
+	const wanted = (m: Mark): string => (!flush.has(m) && atEdge(m) ? hangOf(m) : '')
+
+	/** Marks whose own hang takes them off their edge: left flush. */
+	const flush = new Set<Mark>()
+	/** Marks before this index are final. */
+	let decided = 0
+	for (let retries = 0; decided < marks.length;) {
+		// Out of retries: hang the rest in one batch; the final check releases what doesn't hold.
+		const end = retries >= MAX_LAYOUT_RETRIES ? marks.length : Math.min(marks.length, decided + LAYOUT_WINDOW)
+		// Hang every mark in the window that is at its edge: all reads, then all writes.
+		const wants = marks.slice(decided, end).map(wanted)
+		wants.forEach((want, k) => setHang(marks[decided + k], want))
+		if (retries >= MAX_LAYOUT_RETRIES) break
+		// Read the new layout: the first mark in the window whose hang doesn't match where it now sits.
+		let first = -1
+		for (let i = decided; i < end && first < 0; i++) {
+			if (getHang(marks[i]) !== wanted(marks[i])) first = i
+		}
+		if (first < 0) { decided = end; continue }
+		// Everything before it is final. Take the hangs from it onwards off, and try it on its own.
+		for (let i = first; i < end; i++) setHang(marks[i], '')
+		const mark = marks[first]
+		const want = wanted(mark)
+		if (want) {
+			setHang(mark, want)
+			if (!atEdge(mark)) { setHang(mark, ''); flush.add(mark) }
+		}
+		decided = first + 1
+		retries++
+	}
+
+	// Final check: no hang may stay on a word that isn't at its edge (it would pull the word over its neighbour).
+	// Only releases, so it ends; in a greedy line layout there is nothing to release.
+	for (let pass = 0; pass < MAX_RELEASE_PASSES; pass++) {
+		const off = marks.filter((m) => getHang(m) !== '' && !atEdge(m))
+		if (!off.length) break
+		off.forEach((m) => setHang(m, ''))
 	}
 
 	requestAnimationFrame(() => {
