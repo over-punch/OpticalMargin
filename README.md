@@ -160,7 +160,7 @@ Words that begin with an opening mark or end with a closing mark are wrapped who
 
 **Size and cost:** the vanilla core (`@overpunch/opticalmargin/core`) is 4.0 kB gzipped; the main entry adds the React hook and component, 1.2 kB gzipped. The first run wraps the words and lays out; later runs with the same snapshot and options only re-check the layout, which took about 1 ms for a 12-line paragraph in headless Chromium. The check reads the layout once per round, and a hang that moves a line break adds a round, so the cost grows with the length of the element: apply it to paragraphs, not to a whole article in one element.
 
-**Browser support:** works in every modern browser. Where nothing can be measured (SSR), the hang is `0` and text renders flush — the same as not applying the effect.
+**Browser support:** it uses standard DOM APIs (`Range` measurement, logical margins) that every modern browser has; the measurements in this README were taken in Chromium. Where nothing can be measured (SSR), the hang is `0` and text renders flush — the same as not applying the effect.
 
 **React is optional.** The main entry also exports the React hook and component, so it imports `react`; without React installed, import the vanilla API from `@overpunch/opticalmargin/core`.
 
