@@ -1,6 +1,6 @@
 {
 	"name": "@overpunch/opticalmargin",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Font-metric hanging punctuation — optical margin alignment that measures each mark's advance width in the rendered font, not a lookup table",
 	"type": "module",
 	"main": "dist/index.cjs",
