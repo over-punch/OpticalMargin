@@ -1,11 +1,11 @@
 "use client"
 
-// Interactive demo for optical-margin — toggles hang at start/end, threshold, maxHangRatio, cursor/gyro, and compare
+// Interactive demo for optical-margin — alignment, column width, margin guides, hyphenation, hang toggles, threshold, maxHangRatio, cursor/gyro, and compare
 import { useState, useEffect, useDeferredValue, useCallback } from "react"
 import { useMediaQuery, useClientValue } from "@/lib/clientValue"
 import { OpticalMarginText } from "@overpunch/opticalmargin"
 
-const SAMPLE = `"The best typography," wrote Jan Tschichold, "is invisible — it disappears into the reading." That is the paradox of the craft: the more perfectly it is executed, the less it is noticed. Every margin matters. Every spacing decision carries weight. "A quotation mark at the start of a line should hang," Bringhurst insists, "so that the letter, not the punctuation, holds the optical edge." The same applies to commas, dashes, periods — any mark smaller than a full letter. Hung correctly, the margin reads as a clean vertical. Left flush, it creates a slight indent that the eye registers as misalignment, even when the reader cannot name what bothers them. "It is a small thing," one might say — but in typography, every small thing is the thing.`
+const SAMPLE = `“The best typography,” wrote Jan Tschichold, “is invisible — it disappears into the reading.” That is the paradox of the craft: the more perfectly it is executed, the less it is noticed. Every margin matters. Every spacing decision carries weight. “A quotation mark at the start of a line should hang,” Bringhurst insists, “so that the letter, not the punctuation, holds the optical edge.” The same applies to commas, dashes, periods — any mark smaller than a full letter. Hung correctly, the margin reads as a clean vertical. Left flush, it creates a slight indent that the eye registers as misalignment, even when the reader cannot name what bothers them. “It is a small thing,” one might say — but in typography, every small thing is the thing.`
 
 // Hoisted to module scope — stable reference, no per-render allocation
 const SAMPLE_STYLE: React.CSSProperties = {
@@ -14,6 +14,23 @@ const SAMPLE_STYLE: React.CSSProperties = {
 	lineHeight: "1.8",
 	fontVariationSettings: '"wght" 300, "opsz" 18, "wdth" 100',
 }
+
+/** Text alignment choices for the sample. Hangs apply on aligned edges only, so this decides which toggles show. */
+type Align = 'left' | 'justify' | 'right'
+
+/** Alignment buttons, in display order. */
+const ALIGN_CHOICES: { value: Align; label: string; title: string }[] = [
+	{ value: 'left', label: 'Left', title: 'Left-aligned: the left edge is aligned, so opening marks hang there. The right edge is ragged and has nothing to align.' },
+	{ value: 'justify', label: 'Justified', title: 'Justified: both edges are aligned, so marks hang at the start and the end of lines.' },
+	{ value: 'right', label: 'Right', title: 'Right-aligned: the right edge is aligned, so closing marks hang there. The left edge is ragged and has nothing to align.' },
+]
+
+/** Colour of the margin guide lines drawn at the column edges. */
+const GUIDE_COLOR = 'oklch(0.80 0.13 30 / 0.85)'
+
+/** Column width slider range, in percent of the demo panel (min keeps a readable measure on phones). */
+const COLUMN_MIN = 50
+const COLUMN_MAX = 100
 
 /** Before/after toggle — small icon anchored to bottom-right of the text area */
 function BeforeAfterToggle({ active, onClick, overlayId }: { active: boolean; onClick: () => void; overlayId: string }) {
@@ -69,13 +86,19 @@ function snapThreshold(v: number): number {
 	return Math.round(Math.max(0, Math.min(3, v)) * 4) / 4
 }
 
-/** Demo component with live controls for hangStart, hangEnd, threshold, maxHangRatio, cursor/gyro, and compare */
+/** Demo component with live controls for alignment, column width, guides, hyphenation, hangStart, hangEnd, threshold, maxHangRatio, cursor/gyro, and compare */
 export default function Demo() {
 	const [hangStart, setHangStart] = useState(true)
 	const [hangEnd, setHangEnd] = useState(true)
 	const [threshold, setThreshold] = useState(0.5)
 	const [maxHangRatio, setMaxHangRatio] = useState(0.9)
 	const [beforeAfter, setComparing] = useState(false)
+	// Hangs apply on aligned edges only; justified text aligns both, so both toggles show by default
+	const [align, setAlign] = useState<Align>('justify')
+	// Column width in percent of the panel (COLUMN_MIN–COLUMN_MAX) — resizing shows hangs following the new line starts
+	const [columnWidth, setColumnWidth] = useState(COLUMN_MAX)
+	const [guides, setGuides] = useState(true)
+	const [hyphenate, setHyphenate] = useState(false)
 	const [fontsReady, setFontsReady] = useState(false)
 	const [gyroPermissionDenied, setGyroPermissionDenied] = useState(false)
 
@@ -184,6 +207,14 @@ export default function Demo() {
 	const overlayId = "om-before-after-overlay"
 	const thresholdReadbackId = "om-threshold-value"
 	const maxHangReadbackId = "om-maxhang-value"
+	const columnReadbackId = "om-column-value"
+
+	// Which toggles have an edge to work on at this alignment
+	const startApplies = hangStart && align !== 'right'
+	const endApplies = hangEnd && align !== 'left'
+
+	// The sample's style at the current alignment (shared by the live text and the compare overlay)
+	const sampleStyle: React.CSSProperties = { ...SAMPLE_STYLE, textAlign: align, hyphens: hyphenate ? 'auto' : 'manual', margin: 0 }
 
 	return (
 		<div className="w-full min-w-0">
@@ -192,7 +223,7 @@ export default function Demo() {
 				<button
 					onClick={() => setHangStart(v => !v)}
 					aria-pressed={hangStart}
-					title={hangStart ? 'Disable hanging at the start margin — opening quotes will align flush with the text edge' : 'Enable hanging at the start margin — opening quotes protrude left so letters hold the optical edge'}
+					title={hangStart ? 'Disable hanging at the start margin — opening quotes will align flush with the text edge' : 'Enable hanging at the start margin — opening quotes protrude past it so letters hold the optical edge. Applies to left-aligned and justified text'}
 					className="text-xs px-3 py-1 rounded-full border transition-opacity"
 					style={{ borderColor: 'currentColor', opacity: hangStart ? 1 : 0.5, background: hangStart ? 'var(--btn-bg)' : 'transparent' }}
 				>
@@ -201,11 +232,47 @@ export default function Demo() {
 				<button
 					onClick={() => setHangEnd(v => !v)}
 					aria-pressed={hangEnd}
-					title={hangEnd ? 'Disable hanging at the end margin — closing quotes and commas will align flush with the text edge' : 'Enable hanging at the end margin — closing quotes, commas, and periods protrude right so letters hold the optical edge'}
+					title={hangEnd ? 'Disable hanging at the end margin — closing quotes and commas will align flush with the text edge' : 'Enable hanging at the end margin — closing quotes, commas, and periods protrude past it so letters hold the optical edge. Applies to right-aligned and justified text'}
 					className="text-xs px-3 py-1 rounded-full border transition-opacity"
 					style={{ borderColor: 'currentColor', opacity: hangEnd ? 1 : 0.5, background: hangEnd ? 'var(--btn-bg)' : 'transparent' }}
 				>
 					End (closing quotes, commas)
+				</button>
+
+				{/* Alignment — hangs apply on aligned edges only, so this decides which toggles have an effect */}
+				<div role="group" aria-label="Text alignment" className="flex items-center gap-1">
+					<span className="text-xs uppercase tracking-[0.18em] font-medium text-muted mr-2">Align</span>
+					{ALIGN_CHOICES.map(choice => (
+						<button
+							key={choice.value}
+							onClick={() => setAlign(choice.value)}
+							aria-pressed={align === choice.value}
+							title={choice.title}
+							className="text-xs px-3 py-1 rounded-full border transition-opacity"
+							style={{ borderColor: 'currentColor', opacity: align === choice.value ? 1 : 0.5, background: align === choice.value ? 'var(--btn-bg)' : 'transparent' }}
+						>
+							{choice.label}
+						</button>
+					))}
+				</div>
+
+				<button
+					onClick={() => setGuides(v => !v)}
+					aria-pressed={guides}
+					title={guides ? 'Hide the margin guide lines' : 'Draw a guide line at each edge of the column, to see what hangs past it'}
+					className="text-xs px-3 py-1 rounded-full border transition-opacity"
+					style={{ borderColor: 'currentColor', opacity: guides ? 1 : 0.5, background: guides ? 'var(--btn-bg)' : 'transparent' }}
+				>
+					Guides
+				</button>
+				<button
+					onClick={() => setHyphenate(v => !v)}
+					aria-pressed={hyphenate}
+					title={hyphenate ? 'Turn automatic hyphenation off' : 'Turn on automatic hyphenation (hyphens: auto) — the text is never locked into lines, so the browser still hyphenates it'}
+					className="text-xs px-3 py-1 rounded-full border transition-opacity"
+					style={{ borderColor: 'currentColor', opacity: hyphenate ? 1 : 0.5, background: hyphenate ? 'var(--btn-bg)' : 'transparent' }}
+				>
+					Hyphenate
 				</button>
 
 				{/* Prominent compare button — labeled, same style as hang toggles */}
@@ -259,6 +326,25 @@ export default function Demo() {
 					/>
 					<span id={maxHangReadbackId} className="tabular-nums text-xs text-muted text-right" aria-live="polite">{maxHangRatio.toFixed(2)}</span>
 				</div>
+				<div className="flex flex-col gap-1 ml-4 min-w-32">
+					<span className="text-xs uppercase tracking-[0.18em] font-medium text-muted" id="om-column-label">Column width</span>
+					<input
+						type="range"
+						min={COLUMN_MIN}
+						max={COLUMN_MAX}
+						step={1}
+						value={columnWidth}
+						aria-label="Column width"
+						aria-labelledby="om-column-label"
+						aria-valuetext={`${columnWidth}%`}
+						aria-describedby={columnReadbackId}
+						title="Width of the text column. As lines re-break, the hangs move to whichever marks now start or end a line."
+						onChange={e => setColumnWidth(Number(e.target.value))}
+						onTouchStart={e => e.stopPropagation()}
+						style={{ touchAction: 'pan-y' }}
+					/>
+					<span id={columnReadbackId} className="tabular-nums text-xs text-muted text-right" aria-live="polite">{columnWidth}%</span>
+				</div>
 
 				{/* Cursor mode — desktop/hover-capable devices only */}
 				{showCursor && (
@@ -298,23 +384,33 @@ export default function Demo() {
 			</div>
 
 			<div className="relative pb-8">
-				<OpticalMarginText
-					key={String(fontsReady)}
-					hangStart={dStart}
-					hangEnd={dEnd}
-					threshold={dThreshold}
-					maxHangRatio={dMaxHangRatio}
-					style={{ ...SAMPLE_STYLE, opacity: fontsReady ? 1 : 0, transition: 'opacity 0.2s ease' }}
-				>
-					{SAMPLE}
-				</OpticalMarginText>
-				<p
-					id={overlayId}
-					aria-hidden="true"
-					style={{ ...SAMPLE_STYLE, position: 'absolute', top: 0, left: 0, width: '100%', margin: 0, opacity: beforeAfter ? 0.45 : 0, pointerEvents: 'none', transition: 'opacity 0.3s ease' }}
-				>
-					{SAMPLE}
-				</p>
+				{/* The column: its edges are the margins the guides mark. Alignment and hyphenation are CSS on the
+				    paragraph, which the hook does not watch, so the key remounts the text when they change. */}
+				<div className="relative" data-demo-column style={{ width: `${columnWidth}%` }}>
+					<OpticalMarginText
+						key={`${fontsReady}-${align}-${hyphenate}`}
+						hangStart={dStart}
+						hangEnd={dEnd}
+						threshold={dThreshold}
+						maxHangRatio={dMaxHangRatio}
+						style={{ ...sampleStyle, opacity: fontsReady ? 1 : 0, transition: 'opacity 0.2s ease' }}
+					>
+						{SAMPLE}
+					</OpticalMarginText>
+					<p
+						id={overlayId}
+						aria-hidden="true"
+						style={{ ...sampleStyle, position: 'absolute', top: 0, left: 0, width: '100%', opacity: beforeAfter ? 0.45 : 0, pointerEvents: 'none', transition: 'opacity 0.3s ease' }}
+					>
+						{SAMPLE}
+					</p>
+					{guides && (
+						<>
+							<span aria-hidden="true" data-demo-guide="start" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 1, background: GUIDE_COLOR, pointerEvents: 'none' }} />
+							<span aria-hidden="true" data-demo-guide="end" style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: 1, background: GUIDE_COLOR, pointerEvents: 'none' }} />
+						</>
+					)}
+				</div>
 				<BeforeAfterToggle active={beforeAfter} onClick={() => setComparing(v => !v)} overlayId={overlayId} />
 			</div>
 
@@ -323,13 +419,19 @@ export default function Demo() {
 					? cursorMode
 						? 'Move cursor left/right to adjust threshold. Press Esc to exit.'
 						: 'Tilt left/right to adjust threshold.'
-					: hangStart && hangEnd
-						? 'Punctuation hangs at both margins.'
-						: hangStart
-							? 'Punctuation hangs at the start margin only.'
-							: hangEnd
-								? 'Punctuation hangs at the end margin only.'
-								: 'Optical margin disabled — punctuation is flush.'
+					: !hangStart && !hangEnd
+						? 'Optical margin disabled — punctuation is flush.'
+						: startApplies && endApplies
+							? 'Justified text aligns both edges, so punctuation hangs at both margins.'
+							: startApplies
+								? (align === 'left'
+									? `Left-aligned: opening marks hang at the left margin. The right edge is ragged, so there is nothing to align${hangEnd ? ' and closing marks stay flush — choose Justified to see them hang' : ''}.`
+									: 'Punctuation hangs at the start margin only.')
+								: endApplies
+									? (align === 'right'
+										? `Right-aligned: closing marks hang at the right margin. The left edge is ragged, so there is nothing to align${hangStart ? ' and opening marks stay flush — choose Justified to see them hang' : ''}.`
+										: 'Punctuation hangs at the end margin only.')
+									: `Nothing hangs: the ${align === 'left' ? 'right' : 'left'} edge of ${align}-aligned text is ragged, so there is nothing to align. Choose Justified, or turn the other toggle on.`
 				}
 			</p>
 		</div>
