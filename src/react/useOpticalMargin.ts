@@ -63,7 +63,7 @@ export function useOpticalMargin(options: OpticalMarginOptions = {}, contentKey?
 	}, [run])
 
 	// Rerun after all fonts finish loading — measurements taken before font-swap
-	// produce wrong results (Canvas glyph metrics use the fallback font).
+	// produce wrong results (the marks are measured in the fallback font).
 	// An unmounted flag prevents calling run() on a detached element.
 	useEffect(() => {
 		let unmounted = false
